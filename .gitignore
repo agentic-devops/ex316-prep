@@ -1,0 +1,16 @@
+# credentials and cluster access
+kubeconfig*
+*.kubeconfig
+auth/
+pull-secret*
+*.pem
+*.key
+oadp-credentials
+credentials-velero
+
+# local working files
+tmp/
+*.swp
+.DS_Store
+.vscode/
+.idea/
