@@ -1,0 +1,29 @@
+# dev1 can create/edit VMs, viewer1 can only look. Users do not need to exist
+# for RoleBindings to be created, so test with: oc auth can-i ... --as=dev1
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev1-vm-edit
+  namespace: vm-lab
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: dev1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubevirt.io:edit
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: viewer1-vm-view
+  namespace: vm-lab
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: viewer1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubevirt.io:view

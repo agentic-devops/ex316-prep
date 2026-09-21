@@ -1,0 +1,197 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: web1
+  namespace: net-lab
+  labels:
+    app: web1
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: web1
+        tier: web
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              write_files:
+                - path: /srv/lab/index.html
+                  content: "hello from web1\n"
+                - path: /etc/systemd/system/labhttp.service
+                  content: |
+                    [Unit]
+                    Description=Lab HTTP responder
+                    After=network-online.target
+                    [Service]
+                    ExecStart=/usr/bin/python3 -m http.server 8080 --directory /srv/lab
+                    Restart=always
+                    [Install]
+                    WantedBy=multi-user.target
+              runcmd:
+                - [systemctl, daemon-reload]
+                - [systemctl, enable, --now, labhttp.service]
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: web2
+  namespace: net-lab
+  labels:
+    app: web2
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: web2
+        tier: web
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              write_files:
+                - path: /srv/lab/index.html
+                  content: "hello from web2\n"
+                - path: /etc/systemd/system/labhttp.service
+                  content: |
+                    [Unit]
+                    Description=Lab HTTP responder
+                    After=network-online.target
+                    [Service]
+                    ExecStart=/usr/bin/python3 -m http.server 8080 --directory /srv/lab
+                    Restart=always
+                    [Install]
+                    WantedBy=multi-user.target
+              runcmd:
+                - [systemctl, daemon-reload]
+                - [systemctl, enable, --now, labhttp.service]
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: db1
+  namespace: net-lab
+  labels:
+    app: db1
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: db1
+        tier: db
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              write_files:
+                - path: /srv/lab/index.html
+                  content: "pretend database\n"
+                - path: /etc/systemd/system/labhttp.service
+                  content: |
+                    [Unit]
+                    Description=Lab HTTP responder
+                    After=network-online.target
+                    [Service]
+                    ExecStart=/usr/bin/python3 -m http.server 5432 --directory /srv/lab
+                    Restart=always
+                    [Install]
+                    WantedBy=multi-user.target
+              runcmd:
+                - [systemctl, daemon-reload]
+                - [systemctl, enable, --now, labhttp.service]

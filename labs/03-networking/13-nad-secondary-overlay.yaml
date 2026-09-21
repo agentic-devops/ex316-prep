@@ -1,0 +1,18 @@
+# Secondary (additional) OVN-Kubernetes layer2 network via NAD.
+# Lives in net-lab, which uses the default pod network as primary.
+# Verify field names with the 4.18 docs: "Attaching a VM to OVN-Kubernetes secondary network".
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: l2-overlay
+  namespace: net-lab
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "l2-overlay",
+      "type": "ovn-k8s-cni-overlay",
+      "topology": "layer2",
+      "netAttachDefName": "net-lab/l2-overlay",
+      "subnets": "192.168.50.0/24"
+    }

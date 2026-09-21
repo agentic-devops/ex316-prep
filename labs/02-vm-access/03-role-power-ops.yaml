@@ -1,0 +1,36 @@
+# Custom least-privilege role: read VMs, start/stop/restart them, open console.
+# No create/delete, no edit of specs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vm-power-ops
+  namespace: vm-lab
+rules:
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines", "virtualmachineinstances"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["subresources.kubevirt.io"]
+    resources:
+      - virtualmachines/start
+      - virtualmachines/stop
+      - virtualmachines/restart
+    verbs: ["update"]
+  - apiGroups: ["subresources.kubevirt.io"]
+    resources:
+      - virtualmachineinstances/console
+      - virtualmachineinstances/vnc
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ops1-vm-power-ops
+  namespace: vm-lab
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ops1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vm-power-ops

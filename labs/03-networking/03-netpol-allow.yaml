@@ -1,0 +1,41 @@
+# Allow the OpenShift router to reach web VMs on 8080 (needed for Routes).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-router-to-web
+  namespace: net-lab
+spec:
+  podSelector:
+    matchLabels:
+      tier: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/ingress: ""
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Allow only web-tier VMs to reach db-tier VMs on 5432.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-to-db
+  namespace: net-lab
+spec:
+  podSelector:
+    matchLabels:
+      tier: db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: web
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -1,0 +1,49 @@
+# VM whose primary interface is attached to the namespace's primary UDN.
+# Note: l2bridge binding instead of masquerade, and no pod-network masquerade.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: udn-vm1
+  namespace: udn-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: udn-vm1
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              binding:
+                name: l2bridge
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

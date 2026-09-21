@@ -1,0 +1,131 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: mh-vm1
+  namespace: extnet-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: mh-vm1
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+              macAddress: "02:00:00:aa:01:11"
+            - name: ext
+              bridge: {}
+              macAddress: "02:00:00:aa:02:11"
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+        - name: ext
+          multus:
+            networkName: vm-br
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+            networkData: |
+              version: 2
+              ethernets:
+                primary:
+                  match:
+                    macaddress: "02:00:00:aa:01:11"
+                  dhcp4: true
+                ext:
+                  match:
+                    macaddress: "02:00:00:aa:02:11"
+                  addresses:
+                    - 192.168.100.11/24
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: mh-vm2
+  namespace: extnet-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: mh-vm2
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+              macAddress: "02:00:00:aa:01:12"
+            - name: ext
+              bridge: {}
+              macAddress: "02:00:00:aa:02:12"
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+        - name: ext
+          multus:
+            networkName: vm-br
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+            networkData: |
+              version: 2
+              ethernets:
+                primary:
+                  match:
+                    macaddress: "02:00:00:aa:01:12"
+                  dhcp4: true
+                ext:
+                  match:
+                    macaddress: "02:00:00:aa:02:12"
+                  addresses:
+                    - 192.168.100.12/24

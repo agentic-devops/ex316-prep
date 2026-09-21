@@ -1,0 +1,52 @@
+# VM with the pod network (masquerade) AND a second NIC on the l2-overlay network.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: sec-vm
+  namespace: net-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: sec-vm
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+            - name: l2sec
+              bridge: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+        - name: l2sec
+          multus:
+            networkName: l2-overlay
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

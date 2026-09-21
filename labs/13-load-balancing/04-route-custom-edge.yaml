@@ -1,0 +1,20 @@
+# Custom hostname, edge TLS, redirect HTTP to HTTPS.
+# CHANGE the host to a name under your cluster's apps domain:
+#   oc get ingresses.config/cluster -o jsonpath='{.spec.domain}{"\n"}'
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: web-vm-custom
+  namespace: net-lab
+spec:
+  host: web.apps.CHANGE-ME.example.com
+  to:
+    kind: Service
+    name: web-clusterip
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

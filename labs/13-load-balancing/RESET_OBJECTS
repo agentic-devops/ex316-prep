@@ -1,0 +1,4 @@
+svc web-nodeport -n net-lab
+svc vm-ssh-nodeport -n net-lab
+route web-vm -n net-lab
+route web-vm-custom -n net-lab

@@ -1,0 +1,20 @@
+# "Multihomed node": a second NIC with a static IP on one specific node.
+# CHANGE worker-0, ens256 and the address for your cluster.
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: worker-second-nic-static
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: worker-0
+  desiredState:
+    interfaces:
+      - name: ens256
+        type: ethernet
+        state: up
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: 192.168.200.10
+              prefix-length: 24

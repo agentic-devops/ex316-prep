@@ -1,0 +1,17 @@
+# Requires lab 03 VMs (web1, web2) in net-lab.
+# NodePort spreads traffic across both web VMs (tier=web).
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-nodeport
+  namespace: net-lab
+spec:
+  type: NodePort
+  selector:
+    tier: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      nodePort: 30080
+      protocol: TCP

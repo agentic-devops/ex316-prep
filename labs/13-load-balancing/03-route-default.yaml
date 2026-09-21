@@ -1,0 +1,15 @@
+# HTTP route with an auto-generated hostname. Needs Service web-clusterip (lab 03, file 04)
+# and the allow-from-router policy if default-deny is active.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: web-vm
+  namespace: net-lab
+spec:
+  to:
+    kind: Service
+    name: web-clusterip
+    weight: 100
+  port:
+    targetPort: http
+  wildcardPolicy: None

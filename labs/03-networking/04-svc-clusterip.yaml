@@ -1,0 +1,30 @@
+# ClusterIP service in front of both web VMs (round robin over tier=web).
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-clusterip
+  namespace: net-lab
+spec:
+  type: ClusterIP
+  selector:
+    tier: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-clusterip
+  namespace: net-lab
+spec:
+  type: ClusterIP
+  selector:
+    tier: db
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

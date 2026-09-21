@@ -1,0 +1,16 @@
+# External SSH access to one VM through a NodePort.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-ssh-nodeport
+  namespace: net-lab
+spec:
+  type: NodePort
+  selector:
+    app: web1
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22
+      nodePort: 30022
+      protocol: TCP

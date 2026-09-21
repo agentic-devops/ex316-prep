@@ -1,0 +1,25 @@
+# Creates Linux bridge br-vm on every worker, using the spare NIC ens224.
+# CHANGE ens224 to a real unused NIC name: oc get nns <node> -o yaml | grep -A3 'name: ens'
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: br-vm-policy
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+      - name: br-vm
+        description: Linux bridge for VM traffic
+        type: linux-bridge
+        state: up
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        bridge:
+          options:
+            stp:
+              enabled: false
+          port:
+            - name: ens224

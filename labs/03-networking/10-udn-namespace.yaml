@@ -1,0 +1,8 @@
+# The primary-UDN label MUST be present when the namespace is created.
+# It cannot be added to an existing namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: udn-lab
+  labels:
+    k8s.ovn.org/primary-user-defined-network: ""

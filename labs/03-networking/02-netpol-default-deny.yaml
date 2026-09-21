@@ -1,0 +1,12 @@
+# Deny all ingress to every pod (including virt-launcher pods) in net-lab.
+# NetworkPolicies select virt-launcher pods, so they use the labels set under
+# spec.template.metadata.labels of the VM.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-ingress
+  namespace: net-lab
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
