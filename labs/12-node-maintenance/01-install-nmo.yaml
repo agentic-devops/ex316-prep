@@ -1,0 +1,27 @@
+# Node Maintenance Operator. Skip if `oc get crd | grep nodemaintenance` already shows the CRD.
+# Verify the package and channel first:
+#   oc get packagemanifest node-maintenance-operator -n openshift-marketplace -o jsonpath='{.status.defaultChannel}'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-workload-availability
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: workload-availability-operator-group
+  namespace: openshift-workload-availability
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: node-maintenance-operator
+  namespace: openshift-workload-availability
+spec:
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  name: node-maintenance-operator
+  channel: stable
+  installPlanApproval: Automatic

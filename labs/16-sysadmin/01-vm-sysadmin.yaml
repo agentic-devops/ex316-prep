@@ -1,0 +1,84 @@
+# DataVolume-backed guest (PVC sysadmin-vm-root) with two units:
+# labweb (installed, not started) and labapp (typo in ExecStart).
+# Fix and enable both, then verify with curl.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: sysadmin-vm
+  namespace: sysadmin-lab
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: sysadmin-vm-root
+      spec:
+        source:
+          registry:
+            url: docker://quay.io/containerdisks/fedora:latest
+        storage:
+          resources:
+            requests:
+              storage: 10Gi
+  template:
+    metadata:
+      labels:
+        app: sysadmin-vm
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: sysadmin-vm-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              write_files:
+                - path: /srv/lab/index.html
+                  content: "sysadmin lab web\n"
+                - path: /etc/systemd/system/labweb.service
+                  content: |
+                    [Unit]
+                    Description=Lab web (installed but NOT enabled or started)
+                    After=network-online.target
+                    [Service]
+                    ExecStart=/usr/bin/python3 -m http.server 8081 --directory /srv/lab
+                    Restart=on-failure
+                    [Install]
+                    WantedBy=multi-user.target
+                - path: /etc/systemd/system/labapp.service
+                  content: |
+                    [Unit]
+                    Description=Lab app (broken on purpose)
+                    [Service]
+                    ExecStart=/usr/bin/pyton3 -m http.server 8082 --directory /srv/lab
+                    Restart=on-failure
+                    [Install]
+                    WantedBy=multi-user.target
+              runcmd:
+                - [systemctl, daemon-reload]

@@ -1,0 +1,25 @@
+# Node Health Check + Self Node Remediation: automatic recovery from a failed node.
+# Needs the NHC and SNR operators (05-install-nhc-snr.yaml). Verify template names with:
+#   oc get selfnoderemediationtemplate -A
+apiVersion: remediation.medik8s.io/v1alpha1
+kind: NodeHealthCheck
+metadata:
+  name: nhc-worker
+spec:
+  minHealthy: 51%
+  selector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/worker
+        operator: Exists
+  unhealthyConditions:
+    - type: Ready
+      status: "False"
+      duration: 300s
+    - type: Ready
+      status: Unknown
+      duration: 300s
+  remediationTemplate:
+    apiVersion: self-node-remediation.medik8s.io/v1alpha1
+    kind: SelfNodeRemediationTemplate
+    namespace: openshift-workload-availability
+    name: self-node-remediation-resource-deletion-template

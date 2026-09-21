@@ -1,0 +1,8 @@
+# Trigger a live migration declaratively (same as: virtctl migrate mig-vm -n migr-lab).
+apiVersion: kubevirt.io/v1
+kind: VirtualMachineInstanceMigration
+metadata:
+  name: migrate-mig-vm-1
+  namespace: migr-lab
+spec:
+  vmiName: mig-vm

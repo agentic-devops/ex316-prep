@@ -1,0 +1,56 @@
+# containerDisk VM pinned by node affinity to nodes labelled lab/zone=a.
+# Label two nodes first: oc label node <node> lab/zone=a
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: aff-vm
+  namespace: migr-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: aff-vm
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: lab/zone
+                    operator: In
+                    values: ["a"]
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

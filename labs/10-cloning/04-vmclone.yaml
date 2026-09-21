@@ -1,0 +1,17 @@
+# Whole-VM clone (VM object + disks). Verify the served API version first:
+#   oc api-resources | grep clone.kubevirt.io
+# Newer clusters may serve clone.kubevirt.io/v1beta1 as well.
+apiVersion: clone.kubevirt.io/v1alpha1
+kind: VirtualMachineClone
+metadata:
+  name: clone-1
+  namespace: clone-lab
+spec:
+  source:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: src-vm
+  target:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: cloned-by-crd

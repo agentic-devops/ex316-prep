@@ -1,0 +1,38 @@
+# Node Health Check and Self Node Remediation operators. Same namespace as lab 12's NMO.
+# Check package names/channels: oc get packagemanifest -n openshift-marketplace | grep -Ei 'health|remediation|fence'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-workload-availability
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: workload-availability-operator-group
+  namespace: openshift-workload-availability
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: node-healthcheck-operator
+  namespace: openshift-workload-availability
+spec:
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  name: node-healthcheck-operator
+  channel: stable
+  installPlanApproval: Automatic
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: self-node-remediation
+  namespace: openshift-workload-availability
+spec:
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  name: self-node-remediation
+  channel: stable
+  installPlanApproval: Automatic

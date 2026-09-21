@@ -1,0 +1,10 @@
+# Puts a node into maintenance: cordon + drain, live-migrating VMs off it.
+# CHANGE worker-0 to a real worker. Delete the object to bring the node back.
+# Check the served group first: oc get crd | grep nodemaintenance
+apiVersion: nodemaintenance.medik8s.io/v1beta1
+kind: NodeMaintenance
+metadata:
+  name: nm-lab
+spec:
+  nodeName: worker-0
+  reason: "Lab: firmware update"

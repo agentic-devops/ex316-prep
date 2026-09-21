@@ -19,15 +19,16 @@ Each lab folder contains:
 | 07-templates | Templates, instance types, cloud-init |
 | 08-snapshots | VM snapshots and restores |
 | 09-migration-import | OVA import (manual and MTV), external access |
-| 10-cloning | (section 4b) |
-| 11-live-migration | (section 4b) |
-| 12-node-maintenance | (section 4b) |
+| 10-cloning | DataVolume clones, VirtualMachineClone, guest preparation |
+| 11-live-migration | Migrate, cancel, affinity, MigrationPolicy, HCO limits |
+| 12-node-maintenance | NodeMaintenance, cordon and drain |
 | 13-load-balancing | NodePort, Routes |
-| 14-health-probes | (section 4b) |
-| 15-node-failure | (section 4b) |
-| 16-sysadmin | (section 4b) |
+| 14-health-probes | Readiness/liveness probes, runStrategy, watchdog |
+| 15-node-failure | Eviction strategy, affinity, taints, health checks, remediation |
+| 16-sysadmin | Services and packages inside the guest |
 
 ## Ground rules
 - Test images default to `quay.io/containerdisks/fedora:latest`. On a disconnected cluster, mirror it or swap in a local image or DataSource.
 - Guest login used by all labs: `cloud-user` / `lab-pass-123`
 - Type every command. Copy/paste only from `oc explain`, `--help`, and docs.
+- Labs 11, 12 and 15 need at least two schedulable workers. Lab 11 needs RWX storage.

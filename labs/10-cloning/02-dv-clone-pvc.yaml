@@ -1,0 +1,18 @@
+# Clone a disk with CDI: new DataVolume whose source is an existing PVC.
+# Stop the source VM first (virtctl stop src-vm -n clone-lab) unless your storage
+# supports smart clone (CSI snapshot based). The new size must be >= source size.
+# Cross-namespace clone: set source.pvc.namespace to the source namespace (needs RBAC).
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: clone-root
+  namespace: clone-lab
+spec:
+  source:
+    pvc:
+      namespace: clone-lab
+      name: src-vm-root
+  storage:
+    resources:
+      requests:
+        storage: 10Gi

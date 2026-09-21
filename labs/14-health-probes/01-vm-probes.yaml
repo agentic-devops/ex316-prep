@@ -1,0 +1,81 @@
+# VM with readiness (HTTP) and liveness (TCP) probes on the guest web server.
+# Readiness failing removes the VM from Service endpoints; liveness failing restarts the VM.
+# Alternative: guestAgentPing: {} (needs qemu-guest-agent running in the guest).
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: probe-vm
+  namespace: probes-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: probe-vm
+    spec:
+      readinessProbe:
+        httpGet:
+          port: 8080
+          path: /
+        initialDelaySeconds: 120
+        periodSeconds: 20
+        timeoutSeconds: 10
+        failureThreshold: 3
+        successThreshold: 3
+      livenessProbe:
+        tcpSocket:
+          port: 8080
+        initialDelaySeconds: 120
+        periodSeconds: 20
+        timeoutSeconds: 10
+        failureThreshold: 3
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              write_files:
+                - path: /srv/lab/index.html
+                  content: "probe target\n"
+                - path: /etc/systemd/system/labhttp.service
+                  content: |
+                    [Unit]
+                    Description=Lab HTTP responder
+                    After=network-online.target
+                    [Service]
+                    ExecStart=/usr/bin/python3 -m http.server 8080 --directory /srv/lab
+                    Restart=always
+                    [Install]
+                    WantedBy=multi-user.target
+              runcmd:
+                - [systemctl, daemon-reload]
+                - [systemctl, enable, --now, labhttp.service]

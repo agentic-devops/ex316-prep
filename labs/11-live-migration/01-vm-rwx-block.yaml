@@ -1,0 +1,64 @@
+# Live-migratable VM: RWX disk, Block mode, evictionStrategy LiveMigrate.
+# If your default StorageClass is not RWX-capable, add
+# "storageClassName: <rwx-class>" under spec.dataVolumeTemplates[0].spec.storage.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: mig-vm
+  namespace: migr-lab
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: mig-vm-root
+      spec:
+        source:
+          registry:
+            url: docker://quay.io/containerdisks/fedora:latest
+        storage:
+          accessModes:
+            - ReadWriteMany
+          volumeMode: Block
+          resources:
+            requests:
+              storage: 10Gi
+  template:
+    metadata:
+      labels:
+        app: mig-vm
+    spec:
+      evictionStrategy: LiveMigrate
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: mig-vm-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

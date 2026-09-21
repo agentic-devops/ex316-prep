@@ -1,0 +1,112 @@
+# Anti-affinity: VMs labelled group=spread must run on different nodes.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: spread-1
+  namespace: fail-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: spread-1
+        group: spread
+    spec:
+      evictionStrategy: LiveMigrate
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  group: spread
+              topologyKey: kubernetes.io/hostname
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: spread-2
+  namespace: fail-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: spread-2
+        group: spread
+    spec:
+      evictionStrategy: LiveMigrate
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  group: spread
+              topologyKey: kubernetes.io/hostname
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

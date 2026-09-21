@@ -1,0 +1,64 @@
+# VM with an i6300esb watchdog device. If the guest stops feeding it (kernel panic or hang),
+# the action runs: poweroff | reset | shutdown. The guest needs the watchdog daemon
+# (package needs a reachable repo, or preinstall it in a custom image).
+# Test inside the guest: sudo sh -c 'echo c > /proc/sysrq-trigger'
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: wd-vm
+  namespace: probes-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: wd-vm
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+          watchdog:
+            name: mywatchdog
+            i6300esb:
+              action: poweroff
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              packages:
+                - watchdog
+              write_files:
+                - path: /etc/watchdog.conf
+                  content: |
+                    watchdog-device = /dev/watchdog
+                    interval = 5
+              runcmd:
+                - [modprobe, i6300esb]
+                - [systemctl, enable, --now, watchdog]

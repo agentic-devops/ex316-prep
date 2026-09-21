@@ -1,0 +1,13 @@
+# Cluster-scoped policy applied to VMIs in namespaces labelled migration-policy=lab.
+apiVersion: migrations.kubevirt.io/v1alpha1
+kind: MigrationPolicy
+metadata:
+  name: lab-policy
+spec:
+  allowAutoConverge: true
+  allowPostCopy: false
+  bandwidthPerMigration: 64Mi
+  completionTimeoutPerGiB: 800
+  selectors:
+    namespaceSelector:
+      migration-policy: lab
