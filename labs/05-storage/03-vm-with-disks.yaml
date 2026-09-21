@@ -1,0 +1,75 @@
+# VM with a DataVolume root disk and a second blank data disk (5Gi).
+# Inside the guest, format and mount the data disk as a practice task.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: storage-vm
+  namespace: storage-lab
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: storage-vm-root
+      spec:
+        source:
+          registry:
+            url: docker://quay.io/containerdisks/fedora:latest
+        storage:
+          resources:
+            requests:
+              storage: 10Gi
+    - metadata:
+        name: storage-vm-data
+      spec:
+        source:
+          blank: {}
+        storage:
+          resources:
+            requests:
+              storage: 5Gi
+  template:
+    metadata:
+      labels:
+        app: storage-vm
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: datadisk
+              serial: datadisk01
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: storage-vm-root
+        - name: datadisk
+          dataVolume:
+            name: storage-vm-data
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

@@ -1,0 +1,33 @@
+# VM built from a cluster instance type + preference instead of hard-coded cpu/memory.
+# Do NOT set domain.cpu or domain.resources.requests.memory when using an instancetype.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: it-vm
+  namespace: tmpl-lab
+spec:
+  runStrategy: Always
+  instancetype:
+    kind: VirtualMachineClusterInstancetype
+    name: u1.medium
+  preference:
+    kind: VirtualMachineClusterPreference
+    name: fedora
+  template:
+    spec:
+      domain:
+        devices: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true

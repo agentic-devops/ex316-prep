@@ -1,0 +1,73 @@
+# VM with a NIC on the storage network that mounts an external NFS export.
+# CHANGE 192.168.100.50:/exports to a real NFS server on the same L2 network.
+# Package install needs a reachable repo; otherwise pre-bake nfs-utils in the image.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: nfs-client
+  namespace: storage-lab
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: nfs-client
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+              macAddress: "02:00:00:bb:01:21"
+            - name: storage
+              bridge: {}
+              macAddress: "02:00:00:bb:02:21"
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+        - name: storage
+          multus:
+            networkName: storage-net
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: cloud-user
+              password: lab-pass-123
+              chpasswd:
+                expire: false
+              ssh_pwauth: true
+              packages:
+                - nfs-utils
+              runcmd:
+                - [mkdir, -p, /mnt/ext]
+                - [sh, -c, "mount -t nfs 192.168.100.50:/exports /mnt/ext || true"]
+            networkData: |
+              version: 2
+              ethernets:
+                primary:
+                  match:
+                    macaddress: "02:00:00:bb:01:21"
+                  dhcp4: true
+                storage:
+                  match:
+                    macaddress: "02:00:00:bb:02:21"
+                  addresses:
+                    - 192.168.100.21/24

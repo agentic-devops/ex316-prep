@@ -1,0 +1,14 @@
+# Standalone blank disk, used to practise hot-plug (virtctl addvolume).
+# With a WaitForFirstConsumer StorageClass it stays Pending until attached.
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: hotplug-disk
+  namespace: storage-lab
+spec:
+  source:
+    blank: {}
+  storage:
+    resources:
+      requests:
+        storage: 2Gi

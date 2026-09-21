@@ -1,0 +1,10 @@
+# Restore after deleting the VM (or the whole namespace). Existing objects are skipped.
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: vm-restore-1
+  namespace: openshift-adp
+spec:
+  backupName: vm-backup-csi
+  includedNamespaces:
+    - oadp-lab

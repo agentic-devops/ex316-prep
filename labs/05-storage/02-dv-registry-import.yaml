@@ -1,0 +1,14 @@
+# Import a disk image from a container registry into a PVC (golden image pattern).
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: fedora-golden
+  namespace: storage-lab
+spec:
+  source:
+    registry:
+      url: docker://quay.io/containerdisks/fedora:latest
+  storage:
+    resources:
+      requests:
+        storage: 10Gi

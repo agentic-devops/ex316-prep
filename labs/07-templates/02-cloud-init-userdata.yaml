@@ -1,0 +1,32 @@
+#cloud-config
+# Reference cloud-init user-data. Paste under spec.template.spec.volumes[].cloudInitNoCloud.userData.
+# Covers the exam pattern: credentials, extra repos, packages, commands, files, services.
+hostname: lab-vm
+fqdn: lab-vm.example.com
+user: cloud-user
+password: lab-pass-123
+chpasswd:
+  expire: false
+ssh_pwauth: true
+ssh_authorized_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEKEYONLY lab@example
+yum_repos:
+  lab-baseos:
+    name: Lab BaseOS
+    baseurl: http://repo.example.com/rhel9/baseos
+    enabled: true
+    gpgcheck: false
+  lab-appstream:
+    name: Lab AppStream
+    baseurl: http://repo.example.com/rhel9/appstream
+    enabled: true
+    gpgcheck: false
+packages:
+  - httpd
+  - qemu-guest-agent
+write_files:
+  - path: /var/www/html/index.html
+    content: "served from cloud-init\n"
+runcmd:
+  - [systemctl, enable, --now, httpd]
+  - [systemctl, enable, --now, qemu-guest-agent]

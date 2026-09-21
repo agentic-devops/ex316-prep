@@ -1,0 +1,11 @@
+# Migration Toolkit for Virtualization: OVA provider (OVA files on an NFS share).
+# Reference only: field values differ per environment. The web console wizard
+# (Migration > Providers) is the fastest path. CHANGE the NFS URL.
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Provider
+metadata:
+  name: ova-provider
+  namespace: openshift-mtv
+spec:
+  type: ova
+  url: 192.168.1.10:/exports/ova

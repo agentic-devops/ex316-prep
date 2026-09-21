@@ -1,0 +1,73 @@
+# Custom OpenShift Template containing a VM. Process it with:
+#   oc process -n tmpl-lab lab-fedora-server -p NAME=web01 | oc apply -n tmpl-lab -f -
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: lab-fedora-server
+  namespace: tmpl-lab
+  annotations:
+    openshift.io/display-name: Lab Fedora server
+    description: Fedora server VM with cloud-init user and configurable memory
+  labels:
+    template.kubevirt.io/type: vm
+    os.template.kubevirt.io/fedora: "true"
+    workload.template.kubevirt.io/server: "true"
+objects:
+  - apiVersion: kubevirt.io/v1
+    kind: VirtualMachine
+    metadata:
+      name: ${NAME}
+      labels:
+        app: ${NAME}
+    spec:
+      runStrategy: Always
+      template:
+        metadata:
+          labels:
+            app: ${NAME}
+        spec:
+          domain:
+            cpu:
+              cores: 1
+            devices:
+              disks:
+                - name: rootdisk
+                  disk:
+                    bus: virtio
+                - name: cloudinitdisk
+                  disk:
+                    bus: virtio
+              interfaces:
+                - name: default
+                  masquerade: {}
+            resources:
+              requests:
+                memory: ${MEMORY}
+          networks:
+            - name: default
+              pod: {}
+          terminationGracePeriodSeconds: 30
+          volumes:
+            - name: rootdisk
+              containerDisk:
+                image: quay.io/containerdisks/fedora:latest
+            - name: cloudinitdisk
+              cloudInitNoCloud:
+                userData: |
+                  #cloud-config
+                  user: cloud-user
+                  password: ${CLOUD_USER_PASSWORD}
+                  chpasswd:
+                    expire: false
+                  ssh_pwauth: true
+parameters:
+  - name: NAME
+    description: VM name
+    required: true
+  - name: MEMORY
+    description: Memory request
+    value: 2Gi
+  - name: CLOUD_USER_PASSWORD
+    description: Password for cloud-user
+    generate: expression
+    from: "[a-z0-9]{12}"

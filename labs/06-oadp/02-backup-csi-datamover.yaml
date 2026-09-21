@@ -1,0 +1,14 @@
+# Backup with CSI snapshot + data mover (snapshot data is copied to object storage).
+# Needs: csi plugin in the DPA, a VolumeSnapshotClass labelled
+#   velero.io/csi-volumesnapshot-class=true
+# Objects live in openshift-adp, NOT in the app namespace.
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: vm-backup-csi
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+    - oadp-lab
+  snapshotMoveData: true
+  ttl: 72h0m0s

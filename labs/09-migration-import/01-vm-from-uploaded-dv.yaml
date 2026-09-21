@@ -1,0 +1,43 @@
+# VM that boots from a disk you uploaded with virtctl image-upload (manual OVA path).
+# Create the DV first:
+#   virtctl image-upload dv imported-disk --size=20Gi --image-path=disk1.qcow2 --insecure -n migrate-lab
+# Legacy/foreign guests often need bus: sata (or virtio drivers installed) and, for
+# UEFI images, an efi firmware block. Adjust to what the source VM used.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: imported-vm
+  namespace: migrate-lab
+  labels:
+    app: imported-vm
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: imported-vm
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        devices:
+          disks:
+            - name: rootdisk
+              bootOrder: 1
+              disk:
+                bus: sata
+          interfaces:
+            - name: default
+              masquerade: {}
+              model: e1000e
+        resources:
+          requests:
+            memory: 4Gi
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - name: rootdisk
+          persistentVolumeClaim:
+            claimName: imported-disk

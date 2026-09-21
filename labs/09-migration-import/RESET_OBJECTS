@@ -1,0 +1,5 @@
+migration.forklift.konveyor.io ova-migration -n openshift-mtv
+plan.forklift.konveyor.io ova-plan -n openshift-mtv
+networkmap.forklift.konveyor.io ova-netmap -n openshift-mtv
+storagemap.forklift.konveyor.io ova-storagemap -n openshift-mtv
+provider.forklift.konveyor.io ova-provider -n openshift-mtv

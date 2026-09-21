@@ -1,0 +1,11 @@
+# Backup using file-system backup (kopia via node agent) instead of CSI snapshots.
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: vm-backup-fs
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+    - oadp-lab
+  defaultVolumesToFsBackup: true
+  ttl: 72h0m0s

@@ -1,0 +1,39 @@
+# Network and storage mappings. Read real source names/ids from the provider inventory
+# in the console before filling these in.
+apiVersion: forklift.konveyor.io/v1beta1
+kind: NetworkMap
+metadata:
+  name: ova-netmap
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: ova-provider
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+    - source:
+        name: VM Network
+      destination:
+        type: pod
+---
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: ova-storagemap
+  namespace: openshift-mtv
+spec:
+  provider:
+    source:
+      name: ova-provider
+      namespace: openshift-mtv
+    destination:
+      name: host
+      namespace: openshift-mtv
+  map:
+    - source:
+        name: CHANGE-ME-source-storage
+      destination:
+        storageClass: CHANGE-ME-storage-class

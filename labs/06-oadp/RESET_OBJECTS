@@ -1,0 +1,4 @@
+backup.velero.io vm-backup-csi -n openshift-adp
+backup.velero.io vm-backup-fs -n openshift-adp
+restore.velero.io vm-restore-1 -n openshift-adp
+schedule.velero.io vm-daily -n openshift-adp

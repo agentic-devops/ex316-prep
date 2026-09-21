@@ -14,18 +14,18 @@ Each lab folder contains:
 | 02-vm-access | Create/manage VMs, RBAC for VM access |
 | 03-networking | Pod network, NetworkPolicy, ClusterIP, UDN |
 | 04-external-networks | NMState, Linux bridge, Multus NAD, multihomed VMs |
-| 05-storage | (section 4) |
-| 06-oadp | (section 4) |
-| 07-templates | (section 4) |
-| 08-snapshots | (section 4) |
-| 09-migration-import | (section 4) |
-| 10-cloning | (section 4) |
-| 11-live-migration | (section 4) |
-| 12-node-maintenance | (section 4) |
+| 05-storage | DataVolumes, hot-plug, expansion, external storage over Multus |
+| 06-oadp | Backup, restore, schedules with OADP |
+| 07-templates | Templates, instance types, cloud-init |
+| 08-snapshots | VM snapshots and restores |
+| 09-migration-import | OVA import (manual and MTV), external access |
+| 10-cloning | (section 4b) |
+| 11-live-migration | (section 4b) |
+| 12-node-maintenance | (section 4b) |
 | 13-load-balancing | NodePort, Routes |
-| 14-health-probes | (section 4) |
-| 15-node-failure | (section 4) |
-| 16-sysadmin | (section 4) |
+| 14-health-probes | (section 4b) |
+| 15-node-failure | (section 4b) |
+| 16-sysadmin | (section 4b) |
 
 ## Ground rules
 - Test images default to `quay.io/containerdisks/fedora:latest`. On a disconnected cluster, mirror it or swap in a local image or DataSource.

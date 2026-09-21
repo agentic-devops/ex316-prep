@@ -1,0 +1,12 @@
+# Stop the VM first: virtctl stop snap-vm -n snap-lab
+apiVersion: snapshot.kubevirt.io/v1beta1
+kind: VirtualMachineRestore
+metadata:
+  name: restore-snap-1
+  namespace: snap-lab
+spec:
+  target:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: snap-vm
+  virtualMachineSnapshotName: snap-1
