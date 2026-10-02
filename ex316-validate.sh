@@ -474,7 +474,12 @@ else
   hasflag virtctl create vm -- --access-cred
   hasflag virtctl create vm -- --run-strategy
   hasflag virtctl create vm -- --infer-instancetype
-  hasflag virtctl create vm -- --namespace
+  # --namespace is a GLOBAL virtctl flag (see "virtctl options"), so it is deliberately
+  # absent from "create vm --help" -- hasflag would report a false failure. Test what
+  # the guides actually rely on: that it lands in metadata.namespace. Offline, no API.
+  shellck "virtctl create vm --namespace lands in metadata.namespace" \
+    "virtctl create vm --name=ex316-t --namespace=ex316-nsprobe \
+       | grep -q 'namespace: ex316-nsprobe'"
   hasflag virtctl addvolume -- --persist
   hasflag virtctl addvolume -- --serial
   hasflag virtctl addvolume -- --volume-name
@@ -656,10 +661,12 @@ for cr in admin edit view kubevirt.io:admin kubevirt.io:edit kubevirt.io:view; d
     bad "clusterrole/$cr MISSING  <-- guide tells you to bind it"
   fi
 done
-checkw "oc auth can-i --as impersonation works" \
-  bash -c "oc auth can-i get pods -n $NS --as=someuser >/dev/null"
-checkw "oc auth can-i --list works" \
-  bash -c "oc auth can-i --list -n $NS >/dev/null"
+# NB: "can-i" exits 1 when the answer is legitimately "no", so a non-zero exit proves
+# nothing. Check that it ANSWERS (yes/no on stdout, no "error:") instead.
+shellck "oc auth can-i --as impersonation works" \
+  "oc auth can-i get pods -n $NS --as=ex316-nobody 2>&1 | grep -qxE 'yes|no'"
+shellck "oc auth can-i --list works" \
+  "oc auth can-i --list -n $NS >/dev/null"
 if [[ $HAVE_CNV -eq 1 && ${RUN_SECTION:-1} == 1 ]]; then
   # --- which API group really carries the start/stop/restart subresources? ---------
   # This is what makes the guides' "oc auth can-i" form correct or wrong. The short
@@ -674,18 +681,43 @@ if [[ $HAVE_CNV -eq 1 && ${RUN_SECTION:-1} == 1 ]]; then
     "! oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
          -n $NS --as=ex316-nobody 2>&1 | grep -qi 'error:'"
 
-  # the resource.group string must actually resolve, or kubectl silently falls back to
-  # treating the whole string as a bare resource name in the core group -> false "no"
-  shellckw "discovery resolves virtualmachines in subresources.kubevirt.io" \
-    "oc api-resources --api-group=subresources.kubevirt.io 2>/dev/null | grep -q virtualmachines"
+  # --- WHICH FORM BUILDS THE RIGHT AccessReview? ----------------------------------
+  # Comparing yes/no answers is useless: as cluster-admin every form answers "yes",
+  # because cluster-admin matches *//*. The only decisive, read-only test is to read
+  # the request body kubectl actually sends (-v=8) and look at the group it resolved.
+  #
+  #   right: {"verb":"update","group":"subresources.kubevirt.io",
+  #           "resource":"virtualmachines","subresource":"start"}
+  #
+  # Anything else means the form silently asks about the wrong thing and will answer
+  # "no" for a user who genuinely can start the VM.
+  sar_attrs() {   # sar_attrs <can-i args...>  -> prints the resourceAttributes JSON
+    "${TO[@]}" oc auth can-i "$@" -n "$NS" --as=ex316-nobody -v=8 2>&1 </dev/null \
+      | grep -o '"resourceAttributes":{[^}]*}' | head -1
+  }
+  SAR_LONG="$(sar_attrs update virtualmachines.subresources.kubevirt.io --subresource=start)"
+  SAR_SHORT="$(sar_attrs update virtualmachines/start)"
+  log "SAR long form : $SAR_LONG"
+  log "SAR short form: $SAR_SHORT"
 
-  say "  ${DIM}reference -- both auth can-i forms, as the current user:${N}"
+  if grep -q '"group":"subresources.kubevirt.io"' <<<"$SAR_LONG" \
+     && grep -q '"subresource":"start"' <<<"$SAR_LONG"; then
+    ok "guide form resolves to group subresources.kubevirt.io (correct)"
+  else
+    bad "guide form does NOT resolve to subresources.kubevirt.io  <-- guides are wrong" \
+        "oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start -v=8" \
+        0 "sent: $SAR_LONG"
+  fi
+  if grep -q '"group":"subresources.kubevirt.io"' <<<"$SAR_SHORT"; then
+    ok "short form virtualmachines/start ALSO resolves correctly -- either form is fine"
+  else
+    warn "short form virtualmachines/start asks the wrong group -- do not use it in the guides"
+  fi
+
+  say "  ${DIM}reference -- the AccessReview each form actually sends:${N}"
   {
-    printf '        short form : virtualmachines/start                            -> %s\n' \
-      "$(oc auth can-i update virtualmachines/start -n "$NS" 2>&1 | tail -1)"
-    printf '        guide form : virtualmachines.subresources.kubevirt.io/start   -> %s\n' \
-      "$(oc auth can-i update virtualmachines.subresources.kubevirt.io \
-           --subresource=start -n "$NS" 2>&1 | tail -1)"
+    printf '        guide form : %s\n' "${SAR_LONG:-(could not capture)}"
+    printf '        short form : %s\n' "${SAR_SHORT:-(could not capture)}"
   } | tee -a "$LOG"
 
   say "  ${DIM}kubevirt clusterroles present on this cluster:${N}"
