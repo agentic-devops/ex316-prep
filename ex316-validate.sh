@@ -214,7 +214,7 @@ shellck() {
 #   the literal "--" is only a readability separator and is stripped before running
 hasflag() {
   [[ "${RUN_SECTION:-1}" == "1" ]] || return 0
-  local flag="${!#}"
+  local flag="${@: -1}"
   local -a cmd=()
   local a
   for a in "${@:1:$#-1}"; do
