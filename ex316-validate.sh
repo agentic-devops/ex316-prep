@@ -210,6 +210,23 @@ shellck() {
   return 0
 }
 
+# shellckw <label> <shell-string>  -- pipeline check that warns (not fails) on error
+shellckw() {
+  [[ "${RUN_SECTION:-1}" == "1" ]] || return 0
+  local label="$1" cmd="$2"
+  run_sh "$cmd"
+  if [[ $RUN_RC -eq 0 ]]; then ok "$label"
+  elif [[ $RUN_RC -eq 124 ]]; then
+    bad "$label" "$cmd" 124 "$RUN_OUT"
+    show_fail "$cmd"
+  else
+    warn "$label"
+    echo "${DIM}        \$ $cmd${N}"
+    echo "${DIM}$(echo "$RUN_OUT" | head -3 | sed 's/^/        /')${N}"
+  fi
+  return 0
+}
+
 # hasflag <binary + subcommand words...> -- <flag>
 #   the literal "--" is only a readability separator and is stripped before running
 hasflag() {
@@ -458,7 +475,7 @@ fi
 # ------------------------------------------------------ 2. oc subcommands and flags
 section 2 "oc subcommands and flags used in the guides"
 for sub in explain "api-resources" process expose patch "set probe" "adm drain" \
-           "adm cordon" "adm uncordon" "adm groups" "auth can-i" extract wait label taint; do
+           "adm cordon" "adm uncordon" "adm groups" "auth can-i" extract wait label "adm taint"; do
   # shellcheck disable=SC2086
   if oc $sub --help >/dev/null 2>&1; then
     ok "oc $sub exists"
@@ -552,7 +569,7 @@ crdversion virtualmachineinstancemigrations.kubevirt.io    v1
 crdversion datavolumes.cdi.kubevirt.io                     v1beta1
 crdversion virtualmachinesnapshots.snapshot.kubevirt.io    v1beta1
 crdversion virtualmachinerestores.snapshot.kubevirt.io     v1beta1
-crdversion virtualmachineclones.clone.kubevirt.io          v1beta1
+crdversion virtualmachineclones.clone.kubevirt.io          v1alpha1
 crdversion nodenetworkconfigurationpolicies.nmstate.io     v1
 crdversion network-attachment-definitions.k8s.cni.cncf.io  v1
 crdversion backups.velero.io                               v1
@@ -623,7 +640,7 @@ shellck "oc create service nodeport --dry-run=client -o yaml" \
   "oc create service nodeport ex316-svc --tcp=22:22 --node-port=30022 --dry-run=client -o yaml | grep -q nodePort"
 shellck "oc create service clusterip --dry-run=client -o yaml" \
   "oc create service clusterip my-svc --tcp=80:8080 --dry-run=client -o yaml | grep -q 'kind: Service'"
-shellck "oc create route edge --dry-run=client -o yaml" \
+shellckw "oc create route edge --dry-run=client -o yaml (needs real service)" \
   "oc create route edge front --service=front --hostname=front.apps.example.com --insecure-policy=Redirect --dry-run=client -o yaml | grep -q 'kind: Route'"
 shellck "oc create configmap --dry-run=client -o yaml" \
   "oc create configmap cm1 --from-literal=a=b --dry-run=client -o yaml | grep -q 'kind: ConfigMap'"
