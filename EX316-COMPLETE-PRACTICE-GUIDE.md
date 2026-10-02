@@ -5,12 +5,15 @@
 **Available during exam:** `oc explain`, `--help`, product docs. NO internet, NO personal notes.
 **Companion file:** `EX316-PRACTICE-QUESTIONS-AND-SOLUTIONS.md` -- same techniques up front, then
 practice questions by topic. Keep both in sync.
+**Validator:** `ex316-validate.sh` -- copy it to a machine with cluster access and run it to
+check every command, flag, field path and manifest in these guides against the live cluster.
+It is read-only (dry-run only; nothing is created, changed or deleted).
 
 ---
 
 ## Part 1: CLI Discovery Strategy for Beginners
 
-Before diving into topics, master these five techniques. They are your lifeline during the exam.
+Before diving into topics, master these six techniques. They are your lifeline during the exam.
 
 ### Technique 1: `--help` + `grep` (Finding the right flags)
 ```bash
@@ -174,6 +177,63 @@ Faster alternative: if **any** example of that resource already exists in the cl
 The product documentation is available during the exam too -- copy YAML from there and
 verify the version with `oc api-resources`, since docs sometimes lag the cluster.
 
+### Technique 6: The 3-Minute Rule (troubleshoot, then wipe)
+
+**The rule:** when something does not work, start a timer. Spend **at most 3 minutes**
+diagnosing. If it is not fixed by then, **delete it and redo it from scratch.** Recreating
+most resources takes under a minute; chasing a broken one can eat 20 minutes you do not have.
+
+**First: is it broken, or just slow?** These are slow by nature -- deleting them makes it
+worse. Let them run and watch:
+
+| Thing | Normal wait | Watch it with |
+|:---|:---|:---|
+| Operator install / HyperConverged | 10-20 min | `oc get csv,pods -n openshift-cnv -w` |
+| DataVolume import from URL | 2-15 min (image size) | `oc get dv -n <ns> -w` |
+| DataVolume clone | 2-10 min | `oc get dv -n <ns> -w` |
+| Auth operator after secret change | 1-3 min | `oc get co authentication -w` |
+| VM first boot | 1-3 min | `oc get vmi -n <ns> -w` |
+| OADP backup / restore | 5-20 min | `oc get backup,restore -n openshift-adp -w` |
+
+The 3-minute timer starts only once it is clearly **stuck or failed** -- phase `Failed`,
+`Error`, `CrashLoopBackOff`, `Pending` for minutes, or no change at all.
+
+**The 60-second triage (works for ANY resource).** The answer is in one of these three more
+than 90% of the time:
+
+```bash
+# 1. Events -- by far the most useful command in OpenShift
+oc get events -n <namespace> --sort-by=.lastTimestamp | tail -20
+
+# 2. Describe it -- Conditions and Events are at the BOTTOM of the output
+oc describe <kind>/<name> -n <namespace> | tail -30
+
+# 3. If a pod is involved, read its logs
+oc get pods -n <namespace>
+oc logs <pod-name> -n <namespace>
+```
+
+**The universal wipe:**
+```bash
+oc delete <kind> <name> -n <namespace>
+
+# Stuck in "Terminating"? Force it
+oc delete <kind> <name> -n <namespace> --force --grace-period=0
+
+# STILL stuck? A finalizer is holding it
+oc patch <kind> <name> -n <namespace> --type=merge -p '{"metadata":{"finalizers":null}}'
+
+# Nuclear option for one task's project (slow -- 1-2 min)
+oc delete project <name>
+oc get project <name>          # repeat until "NotFound"
+oc new-project <name>
+```
+
+> **Before you wipe, check you are in the right namespace.** Most "it didn't work" moments are
+> really "I ran it in the wrong project": `oc project` shows the current one.
+
+Every topic in Part 3 ends with its own **Troubleshoot & Reset** block for that specific task.
+
 ### Speed Tips for the Exam
 1. **Don't write YAML from scratch** -- generate it (see Technique 5), then pipe or redirect
 2. **Use `cat <<EOF | oc apply -f -`** for inline manifests -- faster than creating files
@@ -301,6 +361,43 @@ oc get hco kubevirt-hyperconverged -n openshift-cnv \
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **The 3-minute rule does NOT apply here.** A healthy operator install takes 10-20 minutes.
+> Wiping costs another 15. Only wipe if the CSV actually says `Failed`.
+
+```bash
+oc get csv -n openshift-cnv                 # want PHASE=Succeeded
+oc get installplan -n openshift-cnv         # APPROVED=false means it is WAITING FOR YOU
+oc get pods -n openshift-cnv
+oc get hco kubevirt-hyperconverged -n openshift-cnv -o yaml | tail -30
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `installplan` `APPROVED=false` | Subscription set to Manual approval | `oc patch installplan <name> -n openshift-cnv --type merge -p '{"spec":{"approved":true}}'` |
+| CSV `Installing` <15 min | Normal | Wait |
+| CSV `Failed` | Wrong channel in the Subscription | Wipe (below); get the real channel from the packagemanifest |
+| No `hco` resource | Operator installed, HyperConverged CR never created | Create it |
+| Pods `Pending` | Node capacity | `oc describe pod <name> -n openshift-cnv \| tail -20` |
+
+**Wipe and reinstall (budget 15 min) -- CR first, then operator, then namespace:**
+```bash
+oc delete hco kubevirt-hyperconverged -n openshift-cnv --ignore-not-found
+oc delete subscription --all -n openshift-cnv
+oc delete csv --all -n openshift-cnv
+oc delete namespace openshift-cnv
+oc get ns openshift-cnv                     # repeat until "NotFound"
+
+# Reinstall, taking the channel from the cluster rather than memory
+oc get packagemanifest kubevirt-hyperconverged -n openshift-marketplace \
+  -o jsonpath='{.status.defaultChannel}{"\n"}'
+# ...re-apply Namespace + OperatorGroup + Subscription, then:
+oc wait hco/kubevirt-hyperconverged -n openshift-cnv --for=condition=Available --timeout=20m
+```
+
+---
+
 ### Topic 2: Run and Access Virtual Machines + RBAC
 **Time budget: 15 minutes** | **Difficulty: High** | **Exam weight: High**
 
@@ -401,6 +498,53 @@ oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=star
   -n q2-vmops --as=q2-ops                                                         # yes
 oc auth can-i get virtualmachineinstances.subresources.kubevirt.io --subresource=console \
   -n q2-vmops --as=q2-ops                                                         # no
+```
+
+---
+
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> VM boot is slow (1-3 min); RBAC is instant. Treat them separately -- if `oc auth can-i`
+> says no, do not wait, it is genuinely wrong.
+
+```bash
+# VM side -- walk the chain
+oc get vm,vmi,pods -n q2-vmops
+oc get events -n q2-vmops --sort-by=.lastTimestamp | tail -20
+oc describe pod -n q2-vmops virt-launcher-app01-xxxxx | tail -25
+
+# RBAC side -- the one command that tells the truth
+oc auth can-i --list -n q2-vmops --as=q2-dev | head -20
+oc get rolebinding -n q2-vmops -o wide
+oc describe role vm-operator -n q2-vmops
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| VMI `Pending` | Node capacity or nodeSelector | `oc describe pod virt-launcher-*` -> Events |
+| Console blank | Still booting, or nothing printed | Wait 60s, press Enter; exit with **Ctrl + ]** |
+| cloud-user password rejected | cloud-init runs only on a **fresh** disk | Delete the VM *and* its disk, recreate |
+| `can-i` no, binding looks right | Wrong namespace, or `--role` used where `--clusterrole` was needed | `oc get rolebinding -A \| grep q2-dev` |
+| Custom role cannot start VMs | Missing the subresource | Verbs on `virtualmachines/start`, `/stop`, `/restart` in group `subresources.kubevirt.io` |
+
+**Still broken after 3 minutes -- wipe:**
+```bash
+# VM (delete the disk too, or cloud-init will not re-run)
+virtctl stop app01 -n q2-vmops --force --grace-period=0 2>/dev/null
+oc delete vm app01 -n q2-vmops --ignore-not-found
+oc delete dv,pvc --all -n q2-vmops
+oc get vm,vmi,dv,pvc,pods -n q2-vmops        # confirm clean
+virtctl create vm --name=app01 --memory=4Gi \
+  --volume-containerdisk=src:quay.io/containerdisks/fedora:latest \
+  --user=cloud-user --password-file=/tmp/pw > /tmp/app01.yaml
+oc apply -f /tmp/app01.yaml -n q2-vmops
+
+# RBAC (instant to rebuild -- delete all and redo)
+oc delete rolebinding --all -n q2-vmops
+oc delete role vm-operator -n q2-vmops --ignore-not-found
+oc create rolebinding q2-dev-edit    --clusterrole=edit --user=q2-dev    -n q2-vmops
+oc create rolebinding q2-viewer-view --clusterrole=view --user=q2-viewer -n q2-vmops
+oc auth can-i create virtualmachines.kubevirt.io -n q2-vmops --as=q2-dev
 ```
 
 ---
@@ -529,6 +673,55 @@ EOF
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> NetworkPolicies and Services apply **instantly** -- no waiting, ever. A UserDefinedNetwork
+> is different: it only takes effect on VMs created **after** it exists.
+>
+> **#1 failure: empty endpoints = the Service selector does not match the VM labels.**
+
+```bash
+oc get svc,endpoints -n q3-app                  # ENDPOINTS <none> = selector is wrong
+oc get svc q3-web -n q3-app -o jsonpath='{.spec.selector}{"\n"}'
+oc get vmi -n q3-app --show-labels
+
+oc get netpol -n q3-app
+oc describe netpol <name> -n q3-app
+oc get ns q3-app --show-labels                  # namespaceSelector needs kubernetes.io/metadata.name
+
+oc get userdefinednetwork -n q3-udn
+oc get vmi -n q3-udn -o wide                    # is the IP in 10.200.0.0/24?
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `ENDPOINTS: <none>` | Selector mismatch | Use the VM's own label, e.g. `kubevirt.io/domain: q3-web` |
+| Endpoints vanish after restart | Label was on the VMI only | Patch `vm.spec.template.metadata.labels` |
+| Default-deny blocks allowed traffic too | Allow-rule `podSelector` matches nothing | `oc describe netpol` and compare to real labels |
+| NetworkPolicy has no effect | Created in the wrong namespace | NetPol is namespaced |
+| VM IP not in the UDN subnet | UDN created **after** the VM | Delete and recreate the VM |
+| UDN not applied at all | Namespace missing the required label, or UDN not Ready | `oc describe userdefinednetwork <name> -n q3-udn` |
+
+**Still broken after 3 minutes -- wipe:**
+```bash
+# Networking objects are instant to recreate -- delete freely
+oc delete netpol --all -n q3-app
+oc delete svc --all -n q3-app
+# then re-apply the default-deny, the allow rule, and the Service
+
+# Let virtctl build the Service so the selector is correct for you
+virtctl expose vm q3-web --name=q3-web-svc --port=8080 --target-port=8080 -n q3-app
+oc get endpoints q3-web-svc -n q3-app      # must be populated before moving on
+
+# UDN: the network must exist BEFORE the VM
+oc delete vm --all -n q3-udn
+oc delete userdefinednetwork --all -n q3-udn
+# re-apply the UDN, wait for it, THEN create the VM
+oc get userdefinednetwork -n q3-udn
+```
+
+---
+
 ### Topic 4: External Networks (Multus, NMState)
 **Time budget: 20 minutes** | **Difficulty: High** | **Exam weight: Medium-High**
 
@@ -629,6 +822,53 @@ virtctl ssh cloud-user@vmi/q4-vm1 -n q4-ext -c 'ping -c3 192.168.150.12'
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> An NNCP takes 30-60 seconds to roll out across nodes. Watch the **NNCE** objects (one per
+> node) -- they carry the real error message, not the NNCP.
+
+```bash
+oc get nncp                                  # want: Available
+oc get nnce                                  # PER NODE -- this is where failures show up
+oc describe nnce <node>.<policy-name> | tail -30
+
+oc get net-attach-def -n q4-ext
+oc get vmi -n q4-ext -o wide
+oc describe vmi <vm> -n q4-ext | tail -25
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| NNCE `Failed`, "interface not found" | The spare NIC name differs on that node | `oc get nns <node> -o yaml \| grep -A3 name:` to list real NICs |
+| NNCP `Degraded` | Config applied then auto-rolled back (lost connectivity) | Never put the primary NIC in the bridge |
+| NAD exists but VM will not start | NAD name/namespace mismatch in the VM spec | Must be `<namespace>/<nad-name>` |
+| VMI `Pending`, "network not found" | NAD in a different namespace | Recreate the NAD in `q4-ext` |
+| VMs up but ping fails | Static IPs not applied by cloud-init, or different subnets | `ip a` in both guests |
+| No `nncp` resource type | NMState operator not installed | Install it, then create the `NMState` CR |
+
+**Still broken after 3 minutes -- wipe:**
+```bash
+# 1. VMs first (they hold the NAD)
+oc delete vm --all -n q4-ext
+oc get vmi -n q4-ext                       # wait until empty
+
+# 2. The NAD
+oc delete net-attach-def --all -n q4-ext
+
+# 3. The bridge -- do NOT just delete the NNCP: that leaves the bridge on the node.
+#    Set the interface state to absent so it is cleanly removed first.
+oc get nncp
+#    edit the policy: state: absent  (on the bridge interface), apply, wait for Available
+oc get nnce -w
+#    then remove the policy object
+oc delete nncp q4-br-policy
+
+# 4. Confirm the node is clean, then rebuild NNCP -> NAD -> VMs in that order
+oc get nns <node> -o yaml | grep -A3 "name: q4-br"     # expect nothing
+```
+
+---
+
 ### Topic 5: Kubernetes Storage for VMs
 **Time budget: 20 minutes** | **Difficulty: High** | **Exam weight: High**
 
@@ -713,6 +953,62 @@ oc annotate sc <name> storageclass.kubevirt.io/is-default-virt-class=true --over
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **The dangerous part is `/etc/fstab`.** A bad line drops the VM into emergency mode on next
+> boot. **Always run `mount -a` before rebooting** -- if it errors, fix it while you still
+> have a shell.
+
+```bash
+oc get dv,pvc -n q5-store
+oc describe dv <name> -n q5-store | tail -20
+oc get vmi <vm> -n q5-store -o yaml | grep -A6 -i hotplug
+oc get sc                                   # which one is marked default?
+oc get storageprofile <sc-name> -o yaml | grep -A5 claimPropertySets
+
+# Inside the guest
+lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,SERIAL
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `virtctl addvolume` "not found" | DataVolume not `Succeeded` yet | `oc get dv -n q5-store -w`, retry |
+| Hot-plugged disk gone after restart | Missing `--persist` | Re-add with `--persist` |
+| PVC expanded but guest still shows old size | Filesystem not grown | `xfs_growfs /data` (XFS) after the PVC resizes |
+| PVC will not expand | StorageClass has `allowVolumeExpansion: false` | `oc get sc <name> -o yaml \| grep allowVolumeExpansion` |
+| `mkfs` says device busy | You targeted the root disk | Root is usually `vda` -- re-check `lsblk` |
+| VM boots to emergency mode | Bad fstab | Rescue steps below |
+| Two default StorageClasses | Both annotated default | Remove the annotation from one |
+
+**Still broken after 3 minutes -- detach and start the disk over:**
+```bash
+# 1. Unmount in the guest FIRST and remove the fstab line, or detach hangs
+virtctl console <vm> -n q5-store
+#   umount /data ; remove the line from /etc/fstab ; mount -a   (must be silent)
+#   exit with Ctrl + ]
+
+# 2. Detach, then delete the disk
+virtctl removevolume <vm> --volume-name=<dv-name> -n q5-store
+oc delete dv,pvc <dv-name> -n q5-store --ignore-not-found
+
+# 3. Recreate, WAIT for Succeeded, re-attach
+oc get dv <dv-name> -n q5-store -w
+virtctl addvolume <vm> --volume-name=<dv-name> --serial=DISK1 --persist -n q5-store
+```
+
+**Rescue a VM stuck in emergency mode:**
+```bash
+virtctl console <vm> -n q5-store
+#   enter the root password, then:
+#   mount -o remount,rw /
+#   vi /etc/fstab      -> fix or delete the bad line
+#   mount -a           -> must produce NO output
+#   reboot
+# No prompt at all? Rebuilding the VM is faster than rescuing it.
+```
+
+---
+
 ### Topic 6: OADP Backup and Restore
 **Time budget: 20 minutes** | **Difficulty: Medium** | **Exam weight: Medium**
 
@@ -789,6 +1085,60 @@ alias velero='oc -n openshift-adp exec deployment/velero -c velero -it -- ./vele
 velero backup describe <name> --details
 velero backup logs <name>
 # Common causes: missing VolumeSnapshotClass label, BSL not Available
+```
+
+---
+
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> OADP has the most moving parts of any topic. **Diagnose in dependency order** -- there is no
+> point debugging a backup if the BackupStorageLocation is not `Available`:
+>
+> **secret correct -> DPA created -> BSL Available -> backup -> restore**
+
+```bash
+oc get dpa -n openshift-adp
+oc get backupstoragelocation -n openshift-adp     # want PHASE=Available  <-- the key one
+oc get pods -n openshift-adp                      # velero + node-agent Running
+oc logs -n openshift-adp deployment/velero -c velero | tail -40
+
+alias velero='oc -n openshift-adp exec deployment/velero -c velero -it -- ./velero'
+velero backup describe <name> --details
+velero backup logs <name>
+velero restore describe <name> --details
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| BSL `Unavailable` | Wrong bucket, credentials, or caCert in the DPA | Re-extract the real values and re-apply the DPA |
+| Log: "SignatureDoesNotMatch" | Access key/secret mis-copied | Re-extract the secret |
+| Backup `PartiallyFailed` | A listed resource type does not exist, or a PVC could not be snapshotted | `velero backup logs <name>` names it |
+| Backup `Completed`, restore empty | `namespaceMapping` typo | `oc get all -n <target-ns>` |
+| VM definition restored but disk empty | CSI data movement not enabled | `defaultSnapshotMoveData: true` + label the VolumeSnapshotClasses |
+| Schedule never fires | Cron expression wrong, or schedule paused | `oc get schedule -n openshift-adp -o yaml` |
+| `velero: command not found` | It is an alias into the pod | Re-run the alias line |
+
+**Still broken after 3 minutes -- reset at the right level (do NOT reinstall the operator):**
+```bash
+# Level 1: the backup/restore objects (seconds) -- try this first
+oc delete backup <name> -n openshift-adp --ignore-not-found
+oc delete restore <name> -n openshift-adp --ignore-not-found
+oc delete namespace <restore-target-ns> --ignore-not-found
+# re-apply the Backup YAML
+
+# Level 2: the DPA / storage location (1-2 min) -- when BSL is not Available
+oc delete dpa <dpa-name> -n openshift-adp
+oc get backupstoragelocation -n openshift-adp     # should disappear
+
+#   Re-read the REAL values rather than retyping from memory
+oc extract --to=- cm/<obc-name>     -n openshift-adp     # bucket name
+oc extract --to=- secret/<obc-name> -n openshift-adp     # access + secret key
+oc label volumesnapshotclass velero.io/csi-volumesnapshot-class=true --all
+
+oc delete secret cloud-credentials -n openshift-adp --ignore-not-found
+oc create secret generic cloud-credentials -n openshift-adp --from-file cloud=/tmp/cloud-credentials
+# re-apply the DPA, then:
+oc get backupstoragelocation -n openshift-adp -w   # wait for Available
 ```
 
 ---
@@ -878,6 +1228,57 @@ oc get virtualmachineclusterpreference
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **cloud-init runs only on the FIRST boot of a fresh disk.** If your cloud-init change did
+> not take effect, restarting will never help -- you must delete the VM *and its disk*.
+
+```bash
+oc get template -n <ns>
+oc process --parameters -n <ns> q7-appserver        # lists the params and defaults
+oc process -n <ns> q7-appserver -p NAME=web1 -p MEMORY=2Gi    # errors appear here, pre-apply
+
+# Did cloud-init actually run inside the guest?
+virtctl console <vm> -n <ns>
+#   sudo cloud-init status --long
+#   sudo cat /var/log/cloud-init-output.log | tail -30      <-- the real error is here
+#   exit with Ctrl + ]
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `oc apply` rejects the template: "resourceVersion should not be set" | Exported a live object and left its fields in | Delete `resourceVersion`, `uid`, `creationTimestamp`, `selfLink`, `status:` |
+| `oc process` "parameter required" | Param has no default | Pass it with `-p` |
+| `oc process` runs but nothing is created | Forgot to pipe | `oc process ... \| oc apply -f -` |
+| cloud-init password does not work | Disk was reused | Delete the VM **and** the DV/PVC, recreate |
+| httpd not installed by cloud-init | YAML indentation wrong, or no network for the package repo | `cloud-init-output.log` |
+| cloud-init userdata not valid | Missing the `#cloud-config` first line | It must be the literal first line |
+| Instance type not found | Namespaced vs cluster-scoped | `oc get virtualmachineclusterinstancetype` |
+
+**Still broken after 3 minutes -- wipe:**
+```bash
+# Template
+oc delete vm --all -n <ns>
+oc delete dv,pvc --all -n <ns>              # required, or cloud-init will not re-run
+oc delete template q7-appserver -n <ns> --ignore-not-found
+
+# Re-export a clean base and strip the live-object fields
+oc get template rhel9-server-small -n openshift -o yaml > /tmp/q7.yaml
+vi /tmp/q7.yaml     # remove resourceVersion/uid/creationTimestamp/selfLink/status:, set name+namespace
+oc apply -f /tmp/q7.yaml -n <ns>
+
+# Re-instantiate
+oc process -n <ns> q7-appserver -p NAME=web1 -p MEMORY=2Gi | oc apply -n <ns> -f -
+oc get vm,dv -n <ns>
+
+# Validate cloud-init YAML BEFORE building a VM around it
+virtctl create vm --name=tmp --memory=1Gi \
+  --volume-containerdisk=src:quay.io/containerdisks/fedora:latest \
+  --user=cloud-user --password-file=/tmp/pw | tee /tmp/tmp-vm.yaml | head -40
+```
+
+---
+
 ### Topic 8: VM Snapshots
 **Time budget: 15 minutes** | **Difficulty: Medium** | **Exam weight: Medium**
 
@@ -928,6 +1329,54 @@ oc get volumesnapshot,volumesnapshotcontent -n q8-snap
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **A restore requires the VM to be stopped.** That is the most common failure in this topic.
+
+```bash
+oc get vmsnapshot <name> -n <ns> -o jsonpath='{.status.readyToUse}{"\n"}'
+oc describe vmsnapshot <name> -n <ns> | tail -25
+oc get volumesnapshot -n <ns>
+oc get volumesnapshotclass                 # must exist and match the SC's CSI driver
+
+oc get vmrestore -n <ns>
+oc describe vmrestore <name> -n <ns> | tail -20
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `readyToUse` false for <2 min | Normal | Wait |
+| No VolumeSnapshotClass | Storage backend has no CSI snapshot support | `oc get volumesnapshotclass`; use a SC that has one |
+| "source does not exist" | Wrong VM name/namespace in `spec.source` | `apiGroup: kubevirt.io`, `kind: VirtualMachine` |
+| Restore stuck / rejected | VM is still running | `virtctl stop <vm> -n <ns>` first |
+| Restored but the marker file is missing | Restored the wrong snapshot | `oc get vmsnapshot -n <ns>` and check creation times |
+| Deleting a snapshot leaves a VolumeSnapshot behind | Orphan | Delete it directly |
+| Wrong apiVersion rejected | Version drift | `oc api-resources \| grep -i snapshot` |
+
+**Still broken after 3 minutes -- wipe and retake:**
+```bash
+oc delete vmrestore --all -n <ns>
+oc delete vmsnapshot --all -n <ns>
+oc get volumesnapshot -n <ns>              # delete any orphans
+oc get vmsnapshot,vmrestore,volumesnapshot -n <ns>    # confirm clean
+
+# The VM must be healthy before you can snapshot it
+oc get vm,vmi -n <ns>
+
+# Retake using the version the cluster reports
+oc api-resources | grep -i virtualmachinesnapshot
+# ...apply the VirtualMachineSnapshot YAML...
+oc get vmsnapshot <name> -n <ns> -w        # wait for readyToUse: true
+
+# Restore: STOP first, restore, then start
+virtctl stop <vm> -n <ns>
+# ...apply the VirtualMachineRestore YAML...
+oc get vmrestore -n <ns> -w
+virtctl start <vm> -n <ns>
+```
+
+---
+
 ### Topic 9: Migrate from Other Hypervisors (OVA Import)
 **Time budget: 20 minutes** | **Difficulty: Medium** | **Exam weight: Medium**
 
@@ -963,6 +1412,53 @@ virtctl image-upload dv q9-imported --size=20Gi --image-path=legacy-app.qcow2 \
 #     - name: default
 #       masquerade: {}
 #       model: e1000e
+```
+
+---
+
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **The upload is slow** (whole disk, converted). `UploadScheduled` -> `UploadReady` ->
+> `Succeeded` with a moving percentage is working. Start the timer only on `Failed`.
+
+```bash
+oc get dv -n <ns>                              # phase + progress
+oc describe dv <name> -n <ns> | tail -25
+oc get pods -n <ns> | grep -E "importer|uploader|cdi"
+oc logs -n <ns> <importer-or-uploader-pod>
+
+# Legacy-guest boot problems
+oc get vmi <vm> -n <ns> -o wide
+virtctl console <vm> -n <ns>                   # watch where the boot stops
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `virtctl image-upload` hangs at "Waiting for PVC to be ready" | No default StorageClass, or PVC Pending | `oc get sc`; `oc describe pvc <name>` |
+| Upload fails on TLS | Upload proxy cert not trusted | Add `--insecure` |
+| `qemu-img convert` fails | Wrong VMDK extracted from the OVA | `tar tvf <ova>` then re-extract the right file |
+| VM created but will not boot | Legacy guest needs SATA bus / e1000e NIC | Set `disk: bus: sata` and `interface: model: e1000e` |
+| Boots to "no bootable device" | Disk attached as the wrong bus, or empty | Check the DV actually has data: `oc get pvc -n <ns>` size used |
+| NodePort unreachable | Port outside 30000-32767, or selector wrong | `oc get endpoints <svc> -n <ns>` |
+
+**Still broken after 3 minutes -- wipe and re-upload:**
+```bash
+# 1. Remove the VM and the half-uploaded disk
+oc delete vm <vm> -n <ns> --ignore-not-found
+oc delete dv,pvc <dv-name> -n <ns> --ignore-not-found
+oc get pods -n <ns>                            # kill leftover uploader/importer pods
+oc get dv,pvc -n <ns>                          # confirm clean
+
+# 2. Re-verify the image on disk BEFORE uploading again (cheap, catches most failures)
+tar tvf /tmp/<file>.ova
+qemu-img info /tmp/<disk>.qcow2                # format must say qcow2, size must be sane
+
+# 3. Re-upload and watch
+virtctl image-upload dv <dv-name> --size=20Gi --image-path=/tmp/<disk>.qcow2 \
+  --insecure -n <ns>
+oc get dv <dv-name> -n <ns> -w                 # Succeeded
+
+# 4. Only then build the VM around it
 ```
 
 ---
@@ -1015,6 +1511,57 @@ NAME:.metadata.name,IP:.status.interfaces[0].ipAddress,MAC:.status.interfaces[0]
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **Cloning is slow (2-10 min).** `CloneInProgress` with a rising percentage is working.
+> The timer starts at `Failed`, or `Pending` with no movement.
+
+```bash
+oc get dv -n <ns>                              # CloneInProgress -> Succeeded
+oc describe dv <clone-name> -n <ns> | tail -25
+oc get pods -n <ns> | grep -E "clone|cdi"
+
+oc get vmclone -n <ns>
+oc describe vmclone <name> -n <ns> | tail -20
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| DV `Pending`, no clone pod | StorageClass name wrong | `oc get sc`, copy exactly |
+| "target is smaller than source" | Requested size < source PVC | `oc get pvc <src> -n <ns> -o jsonpath='{.spec.resources.requests.storage}{"\n"}'` |
+| Clone hangs at 0% | Source PVC in use, SC cannot live-clone | `virtctl stop <source-vm>` then retry |
+| "source pvc not found" | PVC name is not always the VM name | `oc get pvc -n <ns>` |
+| Clones share a MAC or IP | Golden image not cleaned | Reset `machine-id`, remove SSH host keys, `cloud-init clean` **before** cloning |
+| Clone boots with the source's hostname | Same cause | Same fix -- re-prepare the golden VM |
+
+**Still broken after 3 minutes -- wipe:**
+```bash
+# Remove the half-finished clone
+oc delete vmclone --all -n <ns>
+oc delete vm <clone-vm> -n <ns> --ignore-not-found
+oc delete dv,pvc <clone-name> -n <ns> --ignore-not-found
+oc get dv,pvc,pods -n <ns>                     # no leftover clone pods
+
+# Read the REAL source values instead of guessing
+oc get pvc -n <ns>
+oc get pvc <src> -n <ns> -o jsonpath='{.spec.storageClassName}{"\n"}'
+oc get pvc <src> -n <ns> -o jsonpath='{.spec.resources.requests.storage}{"\n"}'
+
+# Stop the source -- removes the whole "in use" class of failures
+virtctl stop <source-vm> -n <ns>
+
+# Re-prepare the golden image if clones collided (inside the guest):
+#   sudo truncate -s 0 /etc/machine-id
+#   sudo rm -f /etc/ssh/ssh_host_*
+#   sudo cloud-init clean --logs
+#   sudo shutdown -h now
+
+# Re-apply the clone and watch
+oc get dv <clone-name> -n <ns> -w              # Succeeded
+```
+
+---
+
 ### Topic 11: Live Migration
 **Time budget: 20 minutes** | **Difficulty: Medium-High** | **Exam weight: Medium**
 
@@ -1062,6 +1609,59 @@ oc patch hco kubevirt-hyperconverged -n openshift-cnv --type merge \
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **Live migration needs RWX (ReadWriteMany) storage.** Check this before debugging anything
+> else -- with RWO it will never work, no matter how you configure the VM.
+
+```bash
+# Capability check -- do this FIRST
+oc get pvc -n <ns> -o custom-columns=NAME:.metadata.name,MODE:.spec.accessModes
+oc get vmi <vm> -n <ns> -o yaml | grep -A5 -i livemigratable
+#   LiveMigratable: False -> the "reason" field names the blocker
+
+oc get vmim -n <ns>
+oc describe vmim <name> -n <ns> | tail -25
+oc get vmi <vm> -n <ns> -o wide                # which node now?
+oc get migrationpolicy
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `LiveMigratable: False` | RWO disk, or a non-migratable device | `oc describe vmi` gives the exact reason |
+| `virtctl migrate` "already running" | A previous VMIM still exists | `oc delete vmim --all -n <ns>` |
+| Migration starts then fails repeatedly | Target node short on memory | `oc describe node <target>` |
+| Migration never completes | Guest dirtying memory faster than the link copies | Raise bandwidth in the MigrationPolicy, or stop/start instead |
+| Cancel does nothing | Cancel = delete the VMIM object | `oc delete vmim <name> -n <ns>` |
+| MigrationPolicy ignored | Its selector matches no VM/namespace | `oc get migrationpolicy <name> -o yaml` and compare labels |
+
+**Still broken after 3 minutes -- clear migrations and reset:**
+```bash
+# 1. Migration objects are just records -- safe to delete
+oc delete vmim --all -n <ns>
+
+# 2. Un-cordon anything left over from testing
+oc get nodes                                   # look for SchedulingDisabled
+oc adm uncordon <node>
+
+# 3. Hard restart the VM so it reschedules cleanly
+virtctl stop <vm> -n <ns> --force --grace-period=0
+virtctl start <vm> -n <ns>
+oc get vmi <vm> -n <ns> -o wide -w
+
+# 4. Re-apply evictionStrategy, then restart so it takes effect
+oc patch vm <vm> -n <ns> --type merge \
+  -p '{"spec":{"template":{"spec":{"evictionStrategy":"LiveMigrate"}}}}'
+virtctl restart <vm> -n <ns>
+oc get vmi <vm> -n <ns> -o yaml | grep -A5 -i livemigratable    # must be True
+
+# 5. If the storage is RWO, the VM is simply not live-migratable.
+#    Rebuild it on an RWX StorageClass -- there is no config that works around this.
+oc get sc
+```
+
+---
+
 ### Topic 12: Node Maintenance
 **Time budget: 15 minutes** | **Difficulty: Medium** | **Exam weight: Medium**
 
@@ -1098,6 +1698,49 @@ oc delete nodemaintenance q12-nm
 oc adm cordon <node>
 oc adm drain <node> --ignore-daemonsets --delete-emptydir-data --force --timeout=10m
 oc adm uncordon <node>
+```
+
+---
+
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> Cordon/uncordon is instant. A **drain** is not -- it can legitimately take minutes while VMs
+> migrate off. Watch it rather than killing it.
+
+```bash
+oc get nodes                                   # Ready,SchedulingDisabled
+oc get nodemaintenance                         # if using the NodeMaintenance CR
+oc describe nodemaintenance <name> | tail -20
+oc get vmi -A -o wide                          # what is still on that node?
+oc get pods -A --field-selector spec.nodeName=<node> | head -20
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| No `nodemaintenance` resource type | Node Maintenance Operator not installed | Install it, or use `oc adm cordon/drain` instead |
+| NodeMaintenance stuck in `Running` | A pod/VM will not evict | `oc describe nodemaintenance <name>` names it |
+| Node still `SchedulingDisabled` after deleting the CR | Cordon left behind | `oc adm uncordon <node>` |
+| `oc adm drain` hangs on a VM | No `evictionStrategy: LiveMigrate`, or RWO storage | Patch the VM, or stop it and drain again |
+| Drain refuses: local storage / daemonsets | Missing flags | `--ignore-daemonsets --delete-emptydir-data --force` |
+| VMs died instead of migrating | RWO storage | Expected with RWO |
+
+**Still stuck after 3 minutes -- reset the node state:**
+```bash
+# Remove the maintenance CR, then clear the cordon by hand
+oc delete nodemaintenance --all
+oc adm uncordon <node>
+oc get nodes                                   # every node should read just "Ready"
+
+# A wedged drain: Ctrl+C, uncordon, stop the blocking VM, retry
+oc adm uncordon <node>
+oc get vmi -A -o wide | grep <node>
+virtctl stop <vm> -n <ns>                      # stopping is always allowed
+oc adm drain <node> --ignore-daemonsets --delete-emptydir-data --force --timeout=10m
+
+# Make VMs drain-friendly BEFORE the next attempt
+oc patch vm <vm> -n <ns> --type merge \
+  -p '{"spec":{"template":{"spec":{"evictionStrategy":"LiveMigrate"}}}}'
+virtctl restart <vm> -n <ns>
 ```
 
 ---
@@ -1148,6 +1791,54 @@ oc create route edge q13-route --service=q13-http \
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> Instant to apply. **Empty endpoints is still the #1 problem** -- fix that before touching
+> the Route.
+
+```bash
+oc get svc,endpoints -n <ns>                   # ENDPOINTS <none> = selector wrong
+oc get svc <name> -n <ns> -o jsonpath='{.spec.selector}{"\n"}'
+oc get vmi -n <ns> --show-labels
+
+oc get route -n <ns> -o wide
+oc describe route <name> -n <ns> | tail -20
+curl -vk https://<hostname>
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `ENDPOINTS: <none>` | Selector does not match the VM labels | Use `kubevirt.io/domain: <vm-name>` |
+| Route returns 503 | No endpoints behind the Service | Fix the selector first |
+| HTTP not redirecting to HTTPS | Missing insecure policy | `--insecure-policy=Redirect` on `oc create route edge` |
+| Route hostname rejected | Already used by another route | `oc get route -A \| grep <hostname>` |
+| `telnet <route> 22` fails | **Routes are HTTP/TLS only -- they cannot carry SSH** | Use a NodePort for 22 |
+| NodePort rejected | Outside 30000-32767, or taken | `oc get svc -A \| grep <port>` |
+| Labels lost after VM restart | Labelled the VMI only | Patch `vm.spec.template.metadata.labels` |
+
+**Still broken after 3 minutes -- wipe and redo:**
+```bash
+oc delete route --all -n <ns>
+oc delete svc --all -n <ns>
+
+# Let virtctl set the selector for you -- removes the most common mistake
+virtctl expose vm <vm> --name=<vm>-svc --port=8080 --target-port=8080 -n <ns>
+oc get endpoints <vm>-svc -n <ns>              # MUST be populated before continuing
+
+# Then the edge route
+oc create route edge <vm>-route --service=<vm>-svc \
+  --hostname=<host>.apps.ocp4.example.com --insecure-policy=Redirect -n <ns>
+curl -vk https://<host>.apps.ocp4.example.com
+
+# SSH is a separate NodePort service -- not a route
+oc create service nodeport <vm>-ssh --tcp=22:22 --node-port=30022 -n <ns>
+oc patch svc <vm>-ssh -n <ns> --type merge \
+  -p '{"spec":{"selector":{"kubevirt.io/domain":"<vm>"}}}'
+oc get endpoints <vm>-ssh -n <ns>
+```
+
+---
+
 ### Topic 14: Health Probes
 **Time budget: 15 minutes** | **Difficulty: Medium** | **Exam weight: Medium**
 
@@ -1186,6 +1877,55 @@ oc get vmi q14-vm -n q14-probes           # Still Running
 #     name: q14-wd
 #     i6300esb: {action: poweroff}
 # Guest needs watchdog daemon running to feed /dev/watchdog
+```
+
+---
+
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> **A probe only takes effect after `virtctl restart`.** If nothing changed, you probably just
+> forgot the restart.
+>
+> **Danger:** a liveness probe on a port nothing is listening on reboots the VM every
+> `periodSeconds`. If the VM is restart-looping, remove the probe first, then fix the guest.
+
+```bash
+oc get vm  <vm> -n <ns> -o yaml | grep -A10 -i probe      # is it in the spec?
+oc get vmi <vm> -n <ns> -o yaml | grep -A10 -i probe      # is it in the RUNNING instance?
+oc get vmi -n <ns> -w                                     # restart-looping?
+oc get endpoints <svc> -n <ns>                            # readiness controls this
+oc describe vmi <vm> -n <ns> | tail -25
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| Probe in `vm` but not `vmi` | Not restarted | `virtctl restart <vm> -n <ns>` |
+| Patch rejected "unknown field" | Nested under `domain:` | Probes live at `spec.template.spec`, a sibling of `domain` |
+| VM restarts every ~2 min | Liveness probe failing | Remove the probe, start the listener, re-add |
+| VM NotReady but service is up | `initialDelaySeconds` shorter than boot | Raise it (100s is safe) |
+| Endpoint never returns after restarting the listener | Readiness probe path/port wrong | `curl localhost:8080/...` inside the guest |
+| Watchdog does nothing | Device added but no guest daemon | Install/enable the watchdog daemon in the guest |
+
+**Still broken after 3 minutes -- strip the probes and rebuild:**
+```bash
+# Remove both probes (json "remove" op) -- stops any reboot loop
+oc patch vm <vm> -n <ns> --type=json \
+  -p='[{"op":"remove","path":"/spec/template/spec/livenessProbe"}]'
+oc patch vm <vm> -n <ns> --type=json \
+  -p='[{"op":"remove","path":"/spec/template/spec/readinessProbe"}]'
+oc get vm <vm> -n <ns> -o yaml | grep -i probe      # expect no output
+virtctl restart <vm> -n <ns>
+
+# Confirm something is ACTUALLY listening before re-adding a liveness probe
+virtctl console <vm> -n <ns>
+#   ss -tlnp | grep 8080
+#   curl -s localhost:8080/ >/dev/null && echo OK
+#   exit with Ctrl + ]
+
+# Re-apply, then restart again
+oc patch vm/<vm> --type=merge --patch-file=/tmp/probes.yaml -n <ns>
+virtctl restart <vm> -n <ns>
+oc get endpoints <svc> -n <ns> -w
 ```
 
 ---
@@ -1232,6 +1972,55 @@ oc label node <node> q15/dedicated-
 
 ---
 
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> Scheduling rules only apply **when the VM starts**. Patching a running VM changes nothing
+> until you restart it.
+>
+> **Clean up taints and labels when you are done** -- a leftover taint silently breaks every
+> later question on that node.
+
+```bash
+oc get vmi -n <ns> -o wide                     # are the two VMs on different nodes?
+oc describe pod -n <ns> virt-launcher-<vm>-xxxxx | tail -25    # names the failed constraint
+
+oc get nodes --show-labels
+oc describe node <node> | grep -i -A3 taint
+oc get vm <vm> -n <ns> -o yaml | grep -A10 -E "affinity|toleration|nodeSelector"
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| VMI `Pending`, "didn't match pod anti-affinity" | Only one schedulable node left | `oc get nodes`; uncordon, or accept it with 2 workers |
+| VMI `Pending`, "had untolerated taint" | Toleration key/value/effect does not match exactly | Compare all three against `oc describe node` |
+| VMI `Pending`, "didn't match node selector" | Label missing on the node | `oc get nodes -l <key>=<value>` -- empty means fix the label |
+| Anti-affinity ignored | Used `preferred` instead of `required` | `requiredDuringSchedulingIgnoredDuringExecution` |
+| Anti-affinity matches nothing | `labelSelector` does not match the VM's own pod labels | Label must be in `vm.spec.template.metadata.labels` |
+| Everything breaks in later questions | Taint left on a node | Remove it (below) |
+
+**Still broken after 3 minutes -- wipe:**
+```bash
+# 1. Remove the VMs
+oc delete vm --all -n <ns>
+oc get vmi -n <ns>                             # wait until empty
+
+# 2. Clean the node back to neutral -- trailing "-" removes a label or taint
+oc adm taint nodes <node> <key>-
+oc label nodes <node> <key>-
+oc describe node <node> | grep -i -A3 taint    # expect <none>
+oc get nodes --show-labels | grep <key>        # expect nothing
+
+# 3. Re-apply label + taint and PROVE they took before recreating VMs
+oc label nodes <node> <key>=<value> --overwrite
+oc adm taint nodes <node> <key>=<value>:NoSchedule
+oc get nodes -l <key>=<value>                  # must list the node
+
+# 4. Recreate the VMs, then verify placement
+oc get vmi -n <ns> -o wide
+```
+
+---
+
 ### Topic 16: Guest System Administration
 **Time budget: 15 minutes** | **Difficulty: Medium** | **Exam weight: Medium**
 
@@ -1274,6 +2063,75 @@ systemctl list-units --failed    # Failed units
 
 # Bonus: Inspect a stopped VM's filesystem without booting:
 virtctl guestfs <pvc-name> -n <ns>
+```
+
+---
+
+#### Troubleshoot & Reset (3-Minute Rule)
+
+> Here "start over" means **restart the VM**, not delete it. Only rebuild the VM if you broke
+> the boot (bad `/etc/fstab`, removed a system package, broke SELinux).
+>
+> **`systemctl status` is only the headline. `journalctl -xeu <unit>` is the actual error.**
+
+```bash
+# Getting in
+oc get vmi -n <ns>                             # must be Running
+virtctl console <vm> -n <ns>                   # blank? press Enter. Exit: Ctrl + ]
+
+# Inside the guest -- the real diagnostic order
+systemctl status <unit>
+journalctl -xeu <unit> | tail -30              # <-- the actual error lives here
+systemd-analyze verify /etc/systemd/system/<unit>.service
+systemctl list-units --failed
+ss -tlnp
+df -h
+```
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| Ctrl+C will not exit the console | Wrong key | **Ctrl + ]** |
+| Service "active" but dead after reboot | `start` without `enable` | `systemctl enable --now <unit>`; check `systemctl is-enabled` |
+| Edited a unit file, nothing changed | systemd has not re-read it | `systemctl daemon-reload` first |
+| Unit fails instantly, status unhelpful | Typo in `ExecStart` | `journalctl -xeu <unit>` prints the bad path |
+| Drop-in override ignored | Wrong location or name | `/etc/systemd/system/<unit>.service.d/override.conf`, then `daemon-reload` |
+| `yum`/`dnf` fails, no repos | Repo file missing | Re-add the repo file |
+| VM boots to emergency mode | Bad `/etc/fstab` | Rescue below |
+
+**Still broken after 3 minutes -- escalate in this order:**
+```bash
+# Level 1: reload systemd and retry (most "it didn't take" problems)
+systemctl daemon-reload
+systemctl restart <unit>
+systemctl status <unit>
+
+# Level 2: reset the unit's failure state
+systemctl reset-failed <unit>
+systemctl enable --now <unit>
+
+# Level 3: throw away your override and start from the shipped unit
+rm -rf /etc/systemd/system/<unit>.service.d/
+systemctl daemon-reload
+systemctl restart <unit>
+
+# Level 4: reinstall the package (restores the original unit file and config)
+dnf reinstall -y <package>
+
+# Level 5: restart the whole guest
+exit                                           # Ctrl + ] to leave the console
+virtctl restart <vm> -n <ns>
+
+# Level 6: the guest is unbootable -- rebuild the VM (Topic 2 reset block)
+```
+
+**Rescue a VM stuck in emergency mode:**
+```bash
+virtctl console <vm> -n <ns>
+#   enter the root password, then:
+#   mount -o remount,rw /
+#   vi /etc/fstab      -> fix or delete the bad line
+#   mount -a           -> must produce NO output
+#   reboot
 ```
 
 ---
