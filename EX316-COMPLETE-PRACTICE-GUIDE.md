@@ -3,12 +3,14 @@
 **Exam:** Red Hat Certified Specialist in OpenShift Virtualization (EX316)
 **Time limit:** 4 hours | **Format:** Performance-based (CLI only, no multiple choice)
 **Available during exam:** `oc explain`, `--help`, product docs. NO internet, NO personal notes.
+**Companion file:** `EX316-PRACTICE-QUESTIONS-AND-SOLUTIONS.md` -- same techniques up front, then
+practice questions by topic. Keep both in sync.
 
 ---
 
 ## Part 1: CLI Discovery Strategy for Beginners
 
-Before diving into topics, master these three techniques. They are your lifeline during the exam.
+Before diving into topics, master these five techniques. They are your lifeline during the exam.
 
 ### Technique 1: `--help` + `grep` (Finding the right flags)
 ```bash
@@ -19,7 +21,48 @@ oc create --help | grep -i secret
 oc adm --help | grep -i drain
 ```
 
+### Technique 1b: Get complete example commands (copy-paste ready)
+`grep -i memory` shows you flag lines with no context. But every help page also has an
+`Examples:` section full of **complete, working commands**. To see only those, grep for the
+name of the command itself -- every example line starts with it.
+
+**The one thing to remember: `grep` the command's own name.**
+
+```bash
+virtctl create vm --help | grep virtctl
+```
+That prints ~25 full commands, one per line, ready to copy.
+
+**Too many? Add a second `grep` for your keyword.** No new syntax -- just `grep` again:
+```bash
+virtctl create vm --help | grep virtctl | grep memory
+virtctl create vm --help | grep virtctl | grep volume-import
+oc create secret generic --help | grep "oc create secret" | grep from-literal
+```
+Read it left to right: *show the help -> keep the example lines -> keep the ones about memory.*
+
+**Want the description too?** Add `-B1` ("1 line Before" -- the `#` comment sits above each example):
+```bash
+virtctl create vm --help | grep -B1 memory
+```
+```
+  # Create a manifest for a VirtualMachine with specified memory and an ephemeral containerdisk volume
+  virtctl create vm --memory=1Gi --volume-containerdisk=src:my.registry/my-image:my-tag
+```
+
+**If you forget all of the above**, just page through the help and search inside it:
+```bash
+virtctl create vm --help | less
+```
+Then type `/memory` + Enter to jump to the next match, `n` for the match after that, `q` to quit.
+
+Then copy the closest example and edit the values -- far faster than composing flags from scratch.
+
 ### Technique 2: `oc explain` (Finding YAML field paths)
+> **What this is for:** you already have a YAML file (generated -- see Technique 5) and the
+> question asks for *one more thing* ("make it not migrate", "add a readiness probe").
+> `oc explain` tells you the **exact field name and where it nests**. It does not write YAML for you.
+
 ```bash
 # Pattern: oc explain <resource>.spec.path.to.field
 oc explain vm.spec.template.spec.domain
@@ -32,6 +75,11 @@ oc explain vm.spec --recursive | grep -i eviction
 ```
 
 ### Technique 3: `oc api-resources` + `grep` (Finding resource names)
+> **What this is for:** the **first two lines of every YAML file** -- `apiVersion:` and `kind:`.
+> You cannot guess these and getting the version wrong makes `oc apply` reject the file.
+> The output columns are `NAME | SHORTNAMES | APIVERSION | NAMESPACED | KIND`, so you read
+> `apiVersion` and `kind` straight off the matching line.
+
 ```bash
 # Pattern: oc api-resources | grep -i <keyword>
 oc api-resources | grep -i virtualmachine
@@ -53,8 +101,81 @@ oc get volumesnapshotclass                 # snapshot classes
 oc get packagemanifest -n openshift-marketplace | grep -i virt  # operators
 ```
 
+### Technique 5: Getting a FULL YAML file (never type one from scratch)
+
+This is the one that actually produces a file. Techniques 2 and 3 are the *helpers* you use
+on top of it. The exam workflow is always the same four steps:
+
+> **1. Generate a skeleton -> 2. `oc explain` the extra field -> 3. edit -> 4. apply**
+
+**Step 1 -- generate. Pick whichever source exists, in this order:**
+
+```bash
+# a) VMs -- virtctl writes the whole manifest. Redirect it into a file with >
+virtctl create vm --name=db --memory=4Gi \
+  --volume-import=type:ds,src:openshift-virtualization-os-images/rhel9 > db.yaml
+
+# b) Common k8s objects -- oc generates them with --dry-run=client -o yaml
+oc create secret generic my-keys --from-literal=key1=abc --dry-run=client -o yaml > secret.yaml
+oc create rolebinding bob-vm --role=vm-operator --user=bob --dry-run=client -o yaml > rb.yaml
+oc create role vm-operator --verb=get,list --resource=virtualmachines.kubevirt.io --dry-run=client -o yaml
+oc create serviceaccount my-sa --dry-run=client -o yaml
+oc expose vm/my-vm --port=22 --dry-run=client -o yaml
+
+# c) Copy something that already exists in the cluster, then edit the copy
+oc get vm existing-vm -o yaml > new-vm.yaml      # delete the status: block and uid/resourceVersion
+oc get networkpolicy allow-same-ns -o yaml > np.yaml
+
+# d) Red Hat's shipped VM templates
+oc get template -n openshift -l template.kubevirt.io/type=vm
+oc process -n openshift rhel9-server-small -p NAME=myvm -o yaml > vm.yaml
+```
+
+**Step 2 -- find the extra field** the question asks for (this is Technique 2's whole job):
+```bash
+oc explain vm.spec.template.spec --recursive | grep -i eviction
+oc explain vm.spec.template.spec.evictionStrategy
+```
+
+**Step 3 -- edit the file**, adding the field at the path `explain` just showed you.
+
+**Step 4 -- check before you commit to it:**
+```bash
+oc apply -f db.yaml --dry-run=server   # real API validation, changes nothing
+oc apply -f db.yaml
+```
+
+#### When there is NO generator (NetworkPolicy, NNCP, DataVolume, Backup, Snapshot)
+A handful of resources have no `oc create` shortcut. Build them from Techniques 3 + 2:
+
+```bash
+# 1. apiVersion + kind:
+oc api-resources | grep -i snapshot
+#    -> virtualmachinesnapshots  snapshot.kubevirt.io/v1beta1  true  VirtualMachineSnapshot
+
+# 2. what goes under spec:
+oc explain virtualmachinesnapshot.spec
+```
+```yaml
+# 3. type the ~8 lines:
+apiVersion: snapshot.kubevirt.io/v1beta1   # from step 1
+kind: VirtualMachineSnapshot               # from step 1
+metadata:
+  name: db-snap
+  namespace: vm-project
+spec:                                      # fields from step 2
+  source:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: db
+```
+Faster alternative: if **any** example of that resource already exists in the cluster
+(or you can create one with a `virtctl`/`oc` command), use `oc get ... -o yaml` and edit it.
+The product documentation is available during the exam too -- copy YAML from there and
+verify the version with `oc api-resources`, since docs sometimes lag the cluster.
+
 ### Speed Tips for the Exam
-1. **Don't write YAML from scratch** -- use `virtctl create vm` to generate it, then pipe or redirect
+1. **Don't write YAML from scratch** -- generate it (see Technique 5), then pipe or redirect
 2. **Use `cat <<EOF | oc apply -f -`** for inline manifests -- faster than creating files
 3. **Use `oc patch --type merge`** for quick changes instead of `oc edit`
 4. **Use `-w` flag** to watch resources: `oc get vmi -w` until status changes

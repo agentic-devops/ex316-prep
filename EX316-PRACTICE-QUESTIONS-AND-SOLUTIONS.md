@@ -2,7 +2,9 @@
 
 > **15-Day Exam Prep Guide** | Every question includes CLI help discovery steps so you never need to memorize commands.
 >
-> **Strategy for beginners**: On every question, start with `<command> --help | grep -i <keyword>`, then use `oc explain <resource.spec.field>` to find YAML paths. Build commands interactively, never from memory.
+> **Strategy for beginners**: On every question, start with `<command> --help | grep -i <keyword>`, then `<command> --help | grep <command-name>` for complete copy-paste examples, then `oc explain <resource.spec.field>` to find YAML paths. Build commands interactively, never from memory.
+>
+> **Companion file**: `EX316-COMPLETE-PRACTICE-GUIDE.md` has the same techniques in Part 1, plus the 15-day study schedule. Keep both in sync.
 
 ---
 
@@ -15,7 +17,7 @@
 | **Verify** | How to confirm your work is correct |
 | **Time** | Approximate time for a beginner to solve |
 
-### The 3-Step CLI Discovery Method (Use This on EVERY Question)
+### The CLI Discovery Method (Use This on EVERY Question)
 
 ```
 Step 1: Find the right command
@@ -25,9 +27,102 @@ Step 1: Find the right command
 Step 2: Find the right flags
   <command> --help | grep -iE "flag1|flag2|flag3"
 
-Step 3: Find the right YAML fields
+Step 3: Get a COMPLETE example command -- grep the command's own name
+  virtctl create vm --help | grep virtctl
+  virtctl create vm --help | grep virtctl | grep memory
+
+Step 4: Find the right YAML fields
   oc explain <resource>.spec.<path>
   oc explain vm.spec.template.spec.domain
+
+Step 5: Find apiVersion + kind for a YAML file you must write by hand
+  oc api-resources | grep -i <keyword>
+```
+
+#### Step 3 in detail: getting complete, copy-paste-ready commands
+
+`grep -i memory` shows flag lines with no context. But every help page also has an
+`Examples:` section of **complete working commands**, and every one of those lines starts
+with the command's own name -- so grep for that:
+
+```bash
+virtctl create vm --help | grep virtctl              # ~25 full commands, ready to copy
+virtctl create vm --help | grep virtctl | grep memory   # narrow it: just grep again
+oc create secret generic --help | grep "oc create secret" | grep from-literal
+```
+Read left to right: *show the help -> keep the example lines -> keep the ones about memory.*
+
+Want the `#` description line above each example too? Add `-B1` ("1 line **B**efore"):
+```bash
+virtctl create vm --help | grep -B1 memory
+```
+```
+  # Create a manifest for a VirtualMachine with specified memory and an ephemeral containerdisk volume
+  virtctl create vm --memory=1Gi --volume-containerdisk=src:my.registry/my-image:my-tag
+```
+
+If you forget all of it: `virtctl create vm --help | less`, then `/memory` + Enter to jump
+to a match, `n` for the next, `q` to quit.
+
+### When the question needs a FULL YAML file -- never type one from scratch
+
+`oc explain` and `oc api-resources` do **not** write YAML for you. `explain` tells you where
+*one field* nests; `api-resources` gives you the top two lines (`apiVersion:` and `kind:`).
+Something else has to produce the file. Always these four steps:
+
+> **1. Generate a skeleton -> 2. `oc explain` the extra field -> 3. edit -> 4. apply**
+
+```bash
+# 1. Generate. Use whichever source exists, in this order:
+
+#    a) VMs -- virtctl writes the whole manifest; ">" saves it to a file
+virtctl create vm --name=db --memory=4Gi \
+  --volume-import=type:ds,src:openshift-virtualization-os-images/rhel9 > db.yaml
+
+#    b) Common objects -- oc generates them with --dry-run=client -o yaml
+oc create secret generic my-keys --from-literal=key1=abc --dry-run=client -o yaml > secret.yaml
+oc create rolebinding bob-vm --role=vm-operator --user=bob --dry-run=client -o yaml
+oc create role vm-operator --verb=get,list --resource=virtualmachines.kubevirt.io --dry-run=client -o yaml
+oc create serviceaccount my-sa --dry-run=client -o yaml
+oc expose vm/my-vm --port=22 --dry-run=client -o yaml
+
+#    c) Copy something already running, then edit the copy
+oc get vm existing-vm -o yaml > new-vm.yaml   # delete status: and uid/resourceVersion
+
+#    d) Red Hat's shipped VM templates
+oc process -n openshift rhel9-server-small -p NAME=myvm -o yaml > vm.yaml
+
+# 2. Find the extra field the question asks for
+oc explain vm.spec.template.spec --recursive | grep -i eviction
+oc explain vm.spec.template.spec.evictionStrategy
+
+# 3. Edit db.yaml, adding the field at the path explain just showed you
+
+# 4. Validate against the real API without changing anything, then apply
+oc apply -f db.yaml --dry-run=server
+oc apply -f db.yaml
+```
+
+**No generator exists** for a few resources (NetworkPolicy, NodeNetworkConfigurationPolicy,
+DataVolume, OADP Backup/Restore, VirtualMachineSnapshot). That is the one case where you
+hand-write it, using Step 5 then Step 4:
+
+```bash
+oc api-resources | grep -i snapshot
+#  -> virtualmachinesnapshots  snapshot.kubevirt.io/v1beta1  true  VirtualMachineSnapshot
+oc explain virtualmachinesnapshot.spec
+```
+```yaml
+apiVersion: snapshot.kubevirt.io/v1beta1   # from api-resources
+kind: VirtualMachineSnapshot               # from api-resources
+metadata:
+  name: db-snap
+  namespace: vm-project
+spec:                                      # fields from oc explain
+  source:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: db
 ```
 
 ---
