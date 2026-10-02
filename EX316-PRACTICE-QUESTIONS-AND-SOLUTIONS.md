@@ -554,9 +554,18 @@ oc create rolebinding punit-view --clusterrole=view --user=punit -n banana
 ```bash
 oc get rolebinding -n banana
 oc auth can-i create virtualmachines.kubevirt.io -n banana --as=raja
-oc auth can-i update virtualmachines/start -n banana --as=suraj
-oc auth can-i get virtualmachines -n banana --as=punit
+oc auth can-i get    virtualmachines.kubevirt.io -n banana --as=punit
+
+# Subresources (start/stop/restart/console/vnc) live in a DIFFERENT API group.
+# Always spell the group out, or you get a false "no":
+oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
+  -n banana --as=suraj
 ```
+
+> **Trap:** `oc auth can-i update virtualmachines/start` resolves `virtualmachines` to the
+> `kubevirt.io` group, but `kubevirt.io:edit` grants `start` under `subresources.kubevirt.io`.
+> The short form can answer **no** for a user who can genuinely start the VM. Use the
+> fully-qualified form above, and confirm with `oc auth can-i --list -n banana --as=suraj`.
 
 ---
 
@@ -620,8 +629,9 @@ oc create rolebinding punit-view      --clusterrole=view              --user=pun
 
 # Re-verify every single one
 oc auth can-i create virtualmachines.kubevirt.io -n banana --as=raja
-oc auth can-i update virtualmachines/start       -n banana --as=suraj
-oc auth can-i get    virtualmachines             -n banana --as=punit
+oc auth can-i get    virtualmachines.kubevirt.io -n banana --as=punit
+oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
+  -n banana --as=suraj
 ```
 
 **Reset groups:**
@@ -820,7 +830,9 @@ oc get vmi myvm-lan1 --show-labels
 #### Solution:
 ```bash
 # Option A: Using virtctl (recommended)
-virtctl expose vmi myvm-lan1 --name svc-web --type=ClusterIP --port 80 --target-port=80
+# Target kind is "vm", NOT "vmi". Both are accepted, but "vmi" selects the running
+# instance -- the Service breaks after a restart. "vm" survives one.
+virtctl expose vm myvm-lan1 --name svc-web --type=ClusterIP --port 80 --target-port=80
 
 # Option B: Manual service creation + edit selector
 oc create service clusterip my-svc --tcp=80:80
@@ -996,7 +1008,7 @@ oc delete route --all -n banana
 oc delete svc svc-web -n banana --ignore-not-found
 
 # Recreate the service with virtctl (it sets the correct selector FOR you -- fewer mistakes)
-virtctl expose vmi myvm-lan1 --name svc-web --type=ClusterIP --port 80 --target-port=80 -n banana
+virtctl expose vm myvm-lan1 --name svc-web --type=ClusterIP --port 80 --target-port=80 -n banana
 oc get svc,endpoints -n banana        # endpoints must show the VM IP before going further
 
 # Then the route
@@ -2767,8 +2779,8 @@ oc label nodes <node> <key>=<value>
 # 14. Get VM labels
 oc get vmi <vm> --show-labels -n <ns>
 
-# 15. Expose VM as service (via virtctl)
-virtctl expose vmi <vm> --name <svc> --port <port> --target-port <port> -n <ns>
+# 15. Expose VM as service (via virtctl) -- "vm", not "vmi": survives a restart
+virtctl expose vm <vm> --name <svc> --port <port> --target-port <port> -n <ns>
 
 # 16. Check endpoints
 oc get svc,endpoints -n <ns>
@@ -2784,7 +2796,9 @@ oc get dv,pvc -n <ns>
 virtctl migrate <vm> -n <ns>
 
 # 20. Check auth permissions
-oc auth can-i <verb> <resource> -n <ns> --as=<user>
+oc auth can-i <verb> <resource>.<group> -n <ns> --as=<user>
+oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
+  -n <ns> --as=<user>        # subresources: always name the group
 ```
 
 ---

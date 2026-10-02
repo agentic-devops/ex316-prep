@@ -500,6 +500,12 @@ oc auth can-i get virtualmachineinstances.subresources.kubevirt.io --subresource
   -n q2-vmops --as=q2-ops                                                         # no
 ```
 
+> **Spell the API group out on subresource checks.** The short form
+> `oc auth can-i update virtualmachines/start` resolves `virtualmachines` to the
+> `kubevirt.io` group, but `start`/`stop`/`restart`/`console`/`vnc` are granted under
+> `subresources.kubevirt.io`. The short form can answer **no** for a user who really can
+> start the VM. If the two forms disagree, trust `oc auth can-i --list`.
+
 ---
 
 #### Troubleshoot & Reset (3-Minute Rule)
@@ -816,8 +822,8 @@ EOF
 #       addresses: [192.168.150.11/24]
 
 # Verify:
-virtctl ssh cloud-user@vmi/q4-vm1 -n q4-ext -c 'ip -br a'
-virtctl ssh cloud-user@vmi/q4-vm1 -n q4-ext -c 'ping -c3 192.168.150.12'
+virtctl ssh cloud-user@q4-vm1 -n q4-ext -c 'ip -br a'
+virtctl ssh cloud-user@q4-vm1 -n q4-ext -c 'ping -c3 192.168.150.12'
 ```
 
 ---
@@ -892,7 +898,7 @@ oc explain datavolume.spec.source
 
 **Step 2: Format, mount, and persist inside guest**
 ```bash
-virtctl ssh cloud-user@vmi/q5-vm -n q5-store
+virtctl ssh cloud-user@q5-vm -n q5-store
 
 # Inside guest:
 lsblk -o NAME,SIZE,SERIAL          # Find disk by serial DATA01
@@ -1867,7 +1873,7 @@ oc explain vm.spec.template.spec.domain.devices.watchdog
 #   failureThreshold: 3
 
 # Test readiness removes from Endpoints:
-virtctl ssh cloud-user@vmi/q14-vm -n q14-probes -c 'sudo systemctl stop labhttp'
+virtctl ssh cloud-user@q14-vm -n q14-probes -c 'sudo systemctl stop labhttp'
 oc get endpoints q14-svc -n q14-probes    # Empty!
 oc get vmi q14-vm -n q14-probes           # Still Running
 
@@ -2225,7 +2231,8 @@ EOF
 # 2. VM Lifecycle
 virtctl start/stop/restart/pause/unpause <vm> -n <ns>
 virtctl console <vm> -n <ns>        # Ctrl+] to exit
-virtctl ssh user@vmi/<vm> -n <ns>
+virtctl ssh user@<vm> -n <ns>                 # explicit form: user@vmi/<vm>
+virtctl ssh user@<vm> -n <ns> -c '<command>'  # run one command, do not open a shell
 
 # 3. Quick Patch (avoid oc edit)
 oc patch vm <vm> -n <ns> --type merge -p '{"spec":{"runStrategy":"Always"}}'
@@ -2233,7 +2240,9 @@ oc patch pvc <pvc> -n <ns> --type merge -p '{"spec":{"resources":{"requests":{"s
 
 # 4. RBAC
 oc adm policy add-role-to-user kubevirt.io:edit <user> -n <ns>
-oc auth can-i <verb> <resource> -n <ns> --as=<user>
+oc auth can-i <verb> <resource>.<group> -n <ns> --as=<user>
+oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
+  -n <ns> --as=<user>        # subresources: always name the group
 
 # 5. Services and Routes
 virtctl expose vm <vm> --name <svc> --port 80 --target-port 8080 -n <ns>

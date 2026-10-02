@@ -10,7 +10,9 @@
 #   - writes are exercised with --dry-run=server / --dry-run=client, which the API
 #     server validates and then discards
 #   - "oc delete --dry-run=client" is used to syntax-check the reset commands
-#   - the only things written to disk are the two report files
+#   - section 11 runs htpasswd/ssh-keygen inside a mktemp dir that it removes again;
+#     nothing is written to ~/.ssh and no cluster secret is touched
+#   - the only things left on disk are the two report files
 #
 # NEVER STALLS, NEVER STOPS EARLY
 #   - every command runs under `timeout` (default 30s); a hung or unreachable cluster
@@ -30,9 +32,20 @@
 #   ./ex316-validate.sh -n myproject    # dry-run against an existing namespace
 #   ./ex316-validate.sh --create-ns     # create a temp namespace, use it, delete it at exit
 #   ./ex316-validate.sh -v              # show the command for every check, not just failures
-#   ./ex316-validate.sh --section 4     # run only section 4
+#   ./ex316-validate.sh --section 4     # run only section 4 (0-13)
 #   ./ex316-validate.sh --timeout 60    # raise the per-command limit on a slow cluster
 #   ./ex316-validate.sh --no-timeout    # disable the limit entirely (can hang)
+#
+# SECTIONS
+#   0  prerequisites                  7  Technique 4 discovery commands
+#   1  virtctl subcommands + flags    8  Technique 5 generators (client dry-run)
+#   2  oc subcommands + flags         9  every YAML manifest (server dry-run)
+#   3  Technique 1b examples-grep    10  reset/wipe commands (syntax only)
+#   4  oc explain field paths        11  htpasswd / OAuth identity provider
+#   5  apiVersions + CRD versions    12  Forklift (vSphere / OVA import)
+#   6  RBAC ClusterRoles + can-i     13  NodeMaintenance / MigrationPolicy / UDN
+#
+# A SKIP means the operator is not installed here, not that the guide is wrong.
 #
 # EXIT CODE: 0 if nothing FAILED, 1 if anything FAILED, 130 if interrupted.
 #
@@ -57,7 +70,7 @@ while [[ $# -gt 0 ]]; do
     --section)      ONLY_SECTION="$2"; shift 2 ;;
     --timeout)      TIMEOUT="$2"; shift 2 ;;
     --no-timeout)   TIMEOUT=0; shift ;;
-    -h|--help)      sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help)      sed -n '2,47p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (try --help)"; exit 2 ;;
   esac
 done
@@ -436,8 +449,8 @@ section 1 "virtctl subcommands and flags used in the guides"
 if [[ $HAVE_VIRTCTL -eq 0 ]]; then
   skip "section 1 -- virtctl not installed"
 else
-  for sub in start stop restart pause unpause migrate console ssh scp expose \
-             create addvolume removevolume image-upload guestosinfo soft-reboot \
+  for sub in start stop restart pause unpause migrate migrate-cancel console ssh scp expose \
+             create addvolume removevolume image-upload guestosinfo guestfs soft-reboot \
              vnc port-forward credentials version; do
     if virtctl "$sub" --help >/dev/null 2>&1; then
       ok "virtctl $sub exists"
@@ -461,18 +474,32 @@ else
   hasflag virtctl create vm -- --access-cred
   hasflag virtctl create vm -- --run-strategy
   hasflag virtctl create vm -- --infer-instancetype
+  hasflag virtctl create vm -- --namespace
   hasflag virtctl addvolume -- --persist
   hasflag virtctl addvolume -- --serial
   hasflag virtctl addvolume -- --volume-name
   hasflag virtctl removevolume -- --volume-name
   hasflag virtctl expose -- --type
   hasflag virtctl expose -- --target-port
+  hasflag virtctl expose -- --name
+  hasflag virtctl expose -- --port
   hasflag virtctl ssh -- --identity-file
+  hasflag virtctl ssh -- --command
   hasflag virtctl stop -- --force
   hasflag virtctl stop -- --grace-period
   hasflag virtctl image-upload -- --insecure
   hasflag virtctl image-upload -- --image-path
   hasflag virtctl image-upload -- --size
+
+  # target kinds. The guides standardise on "vm" (the Service survives a restart);
+  # "vmi" must still be accepted because it appears in older notes.
+  # A missing VM gives "not found"; an unknown TYPE gives "unsupported/unknown
+  # resource type" -- only the second one means the guide's syntax is wrong.
+  for kind in vm vmi; do
+    shellckw "virtctl expose $kind <name> is a valid target kind" \
+      "! virtctl expose $kind ex316-absent --name=ex316-absent-svc --port=80 -n $NS 2>&1 \
+         | grep -qiE 'unsupported|unknown resource|invalid resource|unknown type'"
+  done
 fi
 
 # ------------------------------------------------------ 2. oc subcommands and flags
@@ -510,6 +537,12 @@ hasflag oc set probe -- --get-url
 hasflag oc set probe -- --initial-delay-seconds
 hasflag oc set probe -- --period-seconds
 hasflag oc process -- --parameters
+hasflag oc auth can-i -- --subresource
+hasflag oc auth can-i -- --list
+hasflag oc expose -- --name
+hasflag oc label -- --overwrite
+hasflag oc extract -- --to
+hasflag oc wait -- --for
 
 # ------------------------------------------- 3. Technique 1b: the examples-grep trick
 section 3 "Technique 1b -- 'grep the command name' returns example commands"
@@ -546,7 +579,12 @@ explainok vm.spec.template.spec.readinessProbe
 explainok vm.spec.template.spec.livenessProbe
 explainok vm.spec.template.spec.accessCredentials
 explainok vm.spec.template.spec.volumes
+explainok vm.spec.template.spec.networks
+explainok vm.spec.template.spec.domain.devices.disks
+explainok vm.spec.template.spec.domain.devices.watchdog
+explainok vm.spec.template.spec.affinity.podAntiAffinity
 explainok vmi.spec
+explainok subscription
 explainok networkpolicy.spec
 explainok networkpolicy.spec.ingress
 explainok networkpolicy.spec.ingress.from
@@ -560,7 +598,14 @@ if [[ $HAVE_CNV -eq 1 ]]; then
   explainok virtualmachinesnapshot.spec
   explainok virtualmachinerestore.spec
   explainok virtualmachineclone.spec
+  explainok storageprofile
 fi
+
+# these depend on operators the guides use but that may not be installed --
+# a missing CRD must not read as "the guide is wrong", so warn instead of fail
+for p in nncp.spec.desiredState userdefinednetwork.spec objectbucketclaim.spec; do
+  shellckw "oc explain $p" "oc explain $p >/dev/null"
+done
 checkw "oc explain vm.spec --recursive | grep -i eviction finds the field" \
   bash -c "oc explain vm.spec --recursive 2>/dev/null | grep -qi eviction"
 
@@ -579,6 +624,22 @@ crdversion backups.velero.io                               v1
 crdversion restores.velero.io                              v1
 crdversion dataprotectionapplications.oadp.openshift.io    v1alpha1
 crdversion objectbucketclaims.objectbucket.io              v1alpha1
+crdversion hyperconvergeds.hco.kubevirt.io                 v1beta1
+crdversion migrationpolicies.migrations.kubevirt.io        v1alpha1
+crdversion nodemaintenances.nodemaintenance.medik8s.io     v1beta1
+crdversion userdefinednetworks.k8s.ovn.org                 v1
+crdversion providers.forklift.konveyor.io                  v1beta1
+crdversion plans.forklift.konveyor.io                      v1beta1
+crdversion networkmaps.forklift.konveyor.io                v1beta1
+crdversion storagemaps.forklift.konveyor.io                v1beta1
+crdversion forkliftcontrollers.forklift.konveyor.io        v1beta1
+
+# built-in (not CRDs) -- the guides quote these apiVersion strings too
+for gv in template.openshift.io/v1 operators.coreos.com/v1 operators.coreos.com/v1alpha1 \
+          rbac.authorization.k8s.io/v1 networking.k8s.io/v1; do
+  shellck "apiVersion $gv is served by this cluster" \
+    "oc api-versions | grep -qx '$gv'"
+done
 
 if [[ ${RUN_SECTION:-1} == 1 ]]; then
   say "  ${DIM}reference -- what this cluster actually reports:${N}"
@@ -600,8 +661,33 @@ checkw "oc auth can-i --as impersonation works" \
 checkw "oc auth can-i --list works" \
   bash -c "oc auth can-i --list -n $NS >/dev/null"
 if [[ $HAVE_CNV -eq 1 && ${RUN_SECTION:-1} == 1 ]]; then
-  checkw "subresource virtualmachines/start is accepted by auth can-i" \
-    bash -c "oc auth can-i update virtualmachines/start -n $NS >/dev/null 2>&1"
+  # --- which API group really carries the start/stop/restart subresources? ---------
+  # This is what makes the guides' "oc auth can-i" form correct or wrong. The short
+  # form "virtualmachines/start" resolves the resource to whatever group discovery
+  # returns first (normally kubevirt.io); the grant lives somewhere else.
+  shellck "kubevirt.io:edit grants virtualmachines/start under subresources.kubevirt.io" \
+    "oc get clusterrole kubevirt.io:edit -o json \
+       | grep -A6 'subresources.kubevirt.io' | grep -q 'virtualmachines/start'"
+
+  # the fully-qualified form the guides use must be accepted, not an arg-parse error
+  shellck "oc auth can-i <resource>.<group> --subresource=start parses" \
+    "! oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
+         -n $NS --as=ex316-nobody 2>&1 | grep -qi 'error:'"
+
+  # the resource.group string must actually resolve, or kubectl silently falls back to
+  # treating the whole string as a bare resource name in the core group -> false "no"
+  shellckw "discovery resolves virtualmachines in subresources.kubevirt.io" \
+    "oc api-resources --api-group=subresources.kubevirt.io 2>/dev/null | grep -q virtualmachines"
+
+  say "  ${DIM}reference -- both auth can-i forms, as the current user:${N}"
+  {
+    printf '        short form : virtualmachines/start                            -> %s\n' \
+      "$(oc auth can-i update virtualmachines/start -n "$NS" 2>&1 | tail -1)"
+    printf '        guide form : virtualmachines.subresources.kubevirt.io/start   -> %s\n' \
+      "$(oc auth can-i update virtualmachines.subresources.kubevirt.io \
+           --subresource=start -n "$NS" 2>&1 | tail -1)"
+  } | tee -a "$LOG"
+
   say "  ${DIM}kubevirt clusterroles present on this cluster:${N}"
   oc get clusterrole 2>/dev/null | grep -i kubevirt | sed 's/^/        /' | tee -a "$LOG"
 fi
@@ -858,6 +944,99 @@ checkw "oc adm drain --dry-run syntax" \
   bash -c "oc adm drain \$(oc get nodes -o jsonpath='{.items[0].metadata.name}') --ignore-daemonsets --delete-emptydir-data --force --dry-run=client >/dev/null"
 checkw "oc adm cordon --dry-run" \
   bash -c "oc adm cordon \$(oc get nodes -o jsonpath='{.items[0].metadata.name}') --dry-run=client >/dev/null"
+
+# -------------------------------------------- 11. htpasswd / OAuth identity provider
+# QUESTIONS Topic 1. Read-only: nothing is extracted to a path that matters, the
+# secret is only re-created as a client dry-run.
+section 11 "htpasswd identity provider (QUESTIONS Topic 1)"
+if command -v htpasswd >/dev/null 2>&1; then
+  ok "htpasswd found: $(command -v htpasswd)"
+  HTP_TMP="$(mktemp -d)"
+  shellck "htpasswd -c -B -b <file> <user> <pass>  (create form)" \
+    "htpasswd -c -B -b $HTP_TMP/users ex316user ex316pass >/dev/null 2>&1"
+  shellck "htpasswd -b <file> <user> <pass>  (append form, does NOT wipe)" \
+    "htpasswd -b $HTP_TMP/users ex316user2 ex316pass >/dev/null 2>&1 \
+       && grep -q '^ex316user:' $HTP_TMP/users"
+  shellck "oc create secret generic --from-file=htpasswd=<file> --dry-run=client" \
+    "oc create secret generic htpasswd-secret --from-file=htpasswd=$HTP_TMP/users \
+       -n openshift-config --dry-run=client -o yaml | grep -q '^  htpasswd:'"
+  rm -rf "$HTP_TMP"
+else
+  warn "htpasswd NOT found -- install httpd-tools. QUESTIONS Topic 1 needs it."
+fi
+
+checkw "oc get oauth cluster" oc get oauth cluster
+shellckw "oauth/cluster has an htpasswd identityProvider wired up" \
+  "oc get oauth cluster -o jsonpath='{.spec.identityProviders[*].type}' | grep -q HTPasswd"
+shellckw "the secret named in oauth/cluster actually exists" \
+  "s=\$(oc get oauth cluster -o jsonpath='{.spec.identityProviders[?(@.type==\"HTPasswd\")].htpasswd.fileData.name}'); \
+   test -n \"\$s\" && oc get secret \"\$s\" -n openshift-config >/dev/null"
+shellckw "oc extract secret/<name> --to=- --keys=htpasswd works" \
+  "s=\$(oc get oauth cluster -o jsonpath='{.spec.identityProviders[?(@.type==\"HTPasswd\")].htpasswd.fileData.name}'); \
+   test -n \"\$s\" && oc extract secret/\"\$s\" -n openshift-config --to=- --keys=htpasswd >/dev/null"
+checkw "oc get co authentication (the 'just wait' check)" \
+  oc get co authentication
+shellck "oc create secret generic --dry-run=client --from-literal" \
+  "oc create secret generic ex316-lit --from-literal=k=v --dry-run=client -o yaml | grep -q 'kind: Secret'"
+
+if command -v ssh-keygen >/dev/null 2>&1; then
+  SSHTMP="$(mktemp -d)"
+  shellck "ssh-keygen -t rsa -b 4096 -f <file> -N '' (non-interactive)" \
+    "ssh-keygen -t rsa -b 4096 -f $SSHTMP/id -N '' -q && test -f $SSHTMP/id.pub"
+  rm -rf "$SSHTMP"
+else
+  warn "ssh-keygen NOT found -- QUESTIONS Q1.3 needs it"
+fi
+
+# -------------------------------------------- 12. Forklift / vSphere+OVA import CRs
+# QUESTIONS Topic 17, GUIDE Topic 9. All SKIP cleanly if MTV is not installed.
+section 12 "Forklift (Migration Toolkit for Virtualization) resources"
+if oc get crd providers.forklift.konveyor.io >/dev/null 2>&1; then
+  ok "Forklift CRDs present"
+  for r in providers plans networkmaps storagemaps migrations forkliftcontrollers; do
+    checkw "oc get $r (forklift.konveyor.io)" oc get "$r" -A
+  done
+  for p in provider.spec plan.spec networkmap.spec storagemap.spec; do
+    shellckw "oc explain $p" "oc explain $p >/dev/null"
+  done
+  shellckw "oc get provider -o wide shows TYPE/READY columns the guide reads" \
+    "oc get provider -A -o wide >/dev/null"
+else
+  skip "Forklift/MTV not installed -- QUESTIONS Topic 17 cannot be validated here"
+fi
+
+# ---------------------------------------------- 13. Guide-only topics not yet covered
+section 13 "NodeMaintenance / MigrationPolicy / UserDefinedNetwork (GUIDE topics)"
+if oc get crd nodemaintenances.nodemaintenance.medik8s.io >/dev/null 2>&1; then
+  checkw "oc get nodemaintenance" oc get nodemaintenance
+  shellckw "oc explain nodemaintenance.spec" "oc explain nodemaintenance.spec >/dev/null"
+  NM_NODE="$(oc get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+  dryrun "NodeMaintenance manifest from GUIDE Topic 12" <<YAML
+apiVersion: nodemaintenance.medik8s.io/v1beta1
+kind: NodeMaintenance
+metadata:
+  name: ex316-validate-nm
+spec:
+  nodeName: ${NM_NODE}
+  reason: validation dry-run
+YAML
+else
+  skip "NodeMaintenance operator not installed -- GUIDE Topic 12 not validated"
+fi
+
+if oc get crd migrationpolicies.migrations.kubevirt.io >/dev/null 2>&1; then
+  checkw "oc get migrationpolicy" oc get migrationpolicy
+  shellckw "oc explain migrationpolicy.spec" "oc explain migrationpolicy.spec >/dev/null"
+else
+  skip "MigrationPolicy CRD absent -- GUIDE Topic 11 not validated"
+fi
+
+if oc get crd userdefinednetworks.k8s.ovn.org >/dev/null 2>&1; then
+  checkw "oc get userdefinednetwork" oc get userdefinednetwork -A
+  shellckw "oc explain userdefinednetwork.spec" "oc explain userdefinednetwork.spec >/dev/null"
+else
+  skip "UserDefinedNetwork CRD absent (needs OVN-K + the feature gate) -- GUIDE Topic 3"
+fi
 
 # ============================================================================= summary
 print_summary
