@@ -408,6 +408,9 @@ if oc get csv -n openshift-cnv >/dev/null 2>&1 && \
    oc get csv -n openshift-cnv --no-headers 2>/dev/null | grep -qi succeeded; then
   ok "OpenShift Virtualization operator is installed and Succeeded"
   HAVE_CNV=1
+elif oc get hco kubevirt-hyperconverged -n openshift-cnv >/dev/null 2>&1; then
+  ok "OpenShift Virtualization detected via HCO (CSV may be upgrading)"
+  HAVE_CNV=1
 else
   warn "OpenShift Virtualization not detected in openshift-cnv -- VM-related checks may SKIP"
   HAVE_CNV=0
@@ -640,8 +643,8 @@ shellck "oc create service nodeport --dry-run=client -o yaml" \
   "oc create service nodeport ex316-svc --tcp=22:22 --node-port=30022 --dry-run=client -o yaml | grep -q nodePort"
 shellck "oc create service clusterip --dry-run=client -o yaml" \
   "oc create service clusterip my-svc --tcp=80:8080 --dry-run=client -o yaml | grep -q 'kind: Service'"
-shellckw "oc create route edge --dry-run=client -o yaml (needs real service)" \
-  "oc create route edge front --service=front --hostname=front.apps.example.com --insecure-policy=Redirect --dry-run=client -o yaml | grep -q 'kind: Route'"
+shellck "oc create route edge --dry-run=client -o yaml" \
+  "oc create route edge front --service=front --port=8080 --hostname=front.apps.example.com --insecure-policy=Redirect --dry-run=client -o yaml | grep -q 'kind: Route'"
 shellck "oc create configmap --dry-run=client -o yaml" \
   "oc create configmap cm1 --from-literal=a=b --dry-run=client -o yaml | grep -q 'kind: ConfigMap'"
 
