@@ -433,8 +433,10 @@ vim cloud-user-init.txt
 ```
 #cloud-config
 user: cloud-user
-password: redhat
-chpasswd: { expire: False }
+password: Rexam-Pass1
+chpasswd:
+  expire: false
+ssh_pwauth: true
 ```
 ```
  base64 -w0 cloud-user-init.txt > cloud-user-init.b64
