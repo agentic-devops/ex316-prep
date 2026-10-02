@@ -153,8 +153,7 @@ htpasswd --help 2>&1 | head -10
 #### Solution:
 ```bash
 # Step 1: Extract existing htpasswd file
-oc -n openshift-config get secrets htpasswd-secret -o json \
-  | jq -r '.data.htpasswd' | base64 --decode > /tmp/htpasswd.txt
+oc get secret htpasswd-secret -n openshift-config -o jsonpath='{.data.htpasswd}' | base64 --decode > /tmp/htpasswd.txt
 
 # Step 2: Add users (use -b flag for batch mode with password on command line)
 htpasswd -b /tmp/htpasswd.txt raja anishrana2001
