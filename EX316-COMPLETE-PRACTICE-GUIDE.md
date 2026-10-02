@@ -426,6 +426,27 @@ chpasswd:
 ssh_pwauth: true
 CIEOF
 ```
+OR
+```
+vim cloud-user-init.txt
+```
+```
+#cloud-config
+user: cloud-user
+password: redhat
+chpasswd: { expire: False }
+```
+```
+ base64 -w0 cloud-user-init.txt > cloud-user-init.b64
+```
+Final solution
+```
+virtctl create vm --name app01 --namespace q2-vmops \
+  --memory 4Gi --cpu 2 \
+  --volume-containerdisk src:quay.io/containerdisks/fedora:latest \
+  --cloud-init-user-data `cat cloud-user-init.b64` | oc apply -f -
+```
+
 
 **Step 2: Start and access console**
 ```bash
