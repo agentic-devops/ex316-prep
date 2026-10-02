@@ -669,28 +669,27 @@ shellck "oc auth can-i --list works" \
   "oc auth can-i --list -n $NS >/dev/null"
 if [[ $HAVE_CNV -eq 1 && ${RUN_SECTION:-1} == 1 ]]; then
   # --- which API group really carries the start/stop/restart subresources? ---------
-  # This is what makes the guides' "oc auth can-i" form correct or wrong. The short
-  # form "virtualmachines/start" resolves the resource to whatever group discovery
-  # returns first (normally kubevirt.io); the grant lives somewhere else.
+  # Establishes the ground truth the checks below are measured against: the grant is
+  # NOT in kubevirt.io, so any can-i form that resolves to kubevirt.io is wrong.
   shellck "kubevirt.io:edit grants virtualmachines/start under subresources.kubevirt.io" \
     "oc get clusterrole kubevirt.io:edit -o json \
        | grep -A6 'subresources.kubevirt.io' | grep -q 'virtualmachines/start'"
 
-  # the fully-qualified form the guides use must be accepted, not an arg-parse error
-  shellck "oc auth can-i <resource>.<group> --subresource=start parses" \
-    "! oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start \
-         -n $NS --as=ex316-nobody 2>&1 | grep -qi 'error:'"
-
-  # --- WHICH FORM BUILDS THE RIGHT AccessReview? ----------------------------------
-  # Comparing yes/no answers is useless: as cluster-admin every form answers "yes",
-  # because cluster-admin matches *//*. The only decisive, read-only test is to read
-  # the request body kubectl actually sends (-v=8) and look at the group it resolved.
+  # --- NO single-shot "oc auth can-i" can express a KubeVirt subresource -----------
+  # Measured on a live cluster (-v=8 dumps the AccessReview kubectl actually sends).
+  # Comparing yes/no answers proves nothing: as cluster-admin every form says "yes".
   #
-  #   right: {"verb":"update","group":"subresources.kubevirt.io",
-  #           "resource":"virtualmachines","subresource":"start"}
+  #   virtualmachines/start
+  #     -> {"group":"kubevirt.io","resource":"virtualmachines","name":"start"}
+  #        parsed as TYPE/NAME -- asks about a VM *named* "start"
+  #   virtualmachines.subresources.kubevirt.io --subresource=start
+  #     -> {"resource":"virtualmachines.subresources.kubevirt.io","subresource":"start"}
+  #        RESTMapper cannot map it (discovery hides slash-named resources), so the
+  #        dotted string is sent verbatim and the group is dropped entirely
   #
-  # Anything else means the form silently asks about the wrong thing and will answer
-  # "no" for a user who genuinely can start the VM.
+  # The guides therefore tell you to use "--list", or a SubjectAccessReview. These
+  # checks assert the broken behaviour is STILL what oc does -- if a future oc fixes
+  # it they flip to FAIL, which is the signal to update the guides' trap note.
   sar_attrs() {   # sar_attrs <can-i args...>  -> prints the resourceAttributes JSON
     "${TO[@]}" oc auth can-i "$@" -n "$NS" --as=ex316-nobody -v=8 2>&1 </dev/null \
       | grep -o '"resourceAttributes":{[^}]*}' | head -1
@@ -700,24 +699,42 @@ if [[ $HAVE_CNV -eq 1 && ${RUN_SECTION:-1} == 1 ]]; then
   log "SAR long form : $SAR_LONG"
   log "SAR short form: $SAR_SHORT"
 
-  if grep -q '"group":"subresources.kubevirt.io"' <<<"$SAR_LONG" \
-     && grep -q '"subresource":"start"' <<<"$SAR_LONG"; then
-    ok "guide form resolves to group subresources.kubevirt.io (correct)"
+  if grep -q '"name":"start"' <<<"$SAR_SHORT"; then
+    ok "trap confirmed: virtualmachines/start is parsed as TYPE/NAME, not a subresource"
   else
-    bad "guide form does NOT resolve to subresources.kubevirt.io  <-- guides are wrong" \
+    bad "oc now parses virtualmachines/start differently  <-- guides' trap note is stale" \
+        "oc auth can-i update virtualmachines/start -v=8" 0 "sent: $SAR_SHORT"
+  fi
+  if grep -q '"group"' <<<"$SAR_LONG"; then
+    bad "oc now resolves <resource>.<group> for subresources  <-- guides can use it again" \
         "oc auth can-i update virtualmachines.subresources.kubevirt.io --subresource=start -v=8" \
         0 "sent: $SAR_LONG"
-  fi
-  if grep -q '"group":"subresources.kubevirt.io"' <<<"$SAR_SHORT"; then
-    ok "short form virtualmachines/start ALSO resolves correctly -- either form is fine"
   else
-    warn "short form virtualmachines/start asks the wrong group -- do not use it in the guides"
+    ok "trap confirmed: <resource>.<group> does not resolve, group is dropped"
   fi
 
-  say "  ${DIM}reference -- the AccessReview each form actually sends:${N}"
+  # The form that DOES work: post the AccessReview yourself. Review APIs persist
+  # nothing, so this stays read-only.
+  shellck "SubjectAccessReview expresses the subresource correctly" \
+    "oc create -o jsonpath='{.status.allowed}' -f - <<'YAML' | grep -qE 'true|false'
+apiVersion: authorization.k8s.io/v1
+kind: SubjectAccessReview
+spec:
+  user: ex316-nobody
+  resourceAttributes:
+    namespace: $NS
+    group: subresources.kubevirt.io
+    resource: virtualmachines
+    subresource: start
+    verb: update
+YAML"
+  shellck "oc auth can-i --list --as=<user> is tabular (the reliable check)" \
+    "oc auth can-i --list -n $NS --as=ex316-nobody | grep -qi 'Resources'"
+
+  say "  ${DIM}reference -- the AccessReview each can-i form actually sends:${N}"
   {
-    printf '        guide form : %s\n' "${SAR_LONG:-(could not capture)}"
-    printf '        short form : %s\n' "${SAR_SHORT:-(could not capture)}"
+    printf '        dotted form: %s\n' "${SAR_LONG:-(could not capture)}"
+    printf '        slash form : %s\n' "${SAR_SHORT:-(could not capture)}"
   } | tee -a "$LOG"
 
   say "  ${DIM}kubevirt clusterroles present on this cluster:${N}"
